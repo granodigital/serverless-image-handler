@@ -8,19 +8,24 @@ import {
   CacheHeaderBehavior,
   CachePolicy,
   CacheQueryStringBehavior,
+  Distribution,
   DistributionProps,
+  Function,
+  FunctionCode,
+  FunctionEventType,
+  FunctionRuntime,
   IOrigin,
   OriginRequestPolicy,
   OriginSslPolicy,
   PriceClass,
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
-import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { HttpOrigin, S3Origin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Policy, PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
-import { IBucket } from "aws-cdk-lib/aws-s3";
+import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
 import { ArnFormat, Aws, Duration, Lazy, Stack } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { CloudFrontToApiGatewayToLambda } from "@aws-solutions-constructs/aws-cloudfront-apigateway-lambda";
@@ -28,6 +33,7 @@ import { CloudFrontToApiGatewayToLambda } from "@aws-solutions-constructs/aws-cl
 import { addCfnSuppressRules } from "../../utils/utils";
 import { SolutionConstructProps } from "../types";
 import * as api from "aws-cdk-lib/aws-apigateway";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 
 export interface BackEndProps extends SolutionConstructProps {
   readonly solutionVersion: string;
@@ -178,6 +184,12 @@ export class BackEnd extends Construct {
       enableLogging: true,
       logBucket: props.logsBucket,
       logFilePrefix: "api-cloudfront/",
+      domainNames: [this.node.getContext("customDomain") as string],
+      certificate: Certificate.fromCertificateArn(
+        this,
+        "Certificate",
+        this.node.getContext("certificateArn") as string
+      ),
       errorResponses: [
         { httpStatus: 500, ttl: Duration.minutes(10) },
         { httpStatus: 501, ttl: Duration.minutes(10) },
@@ -225,5 +237,31 @@ export class BackEnd extends Construct {
     imageHandlerCloudFrontApiGatewayLambda.apiGateway.node.tryRemoveChild("Endpoint"); // we don't need the RestApi endpoint in the outputs
 
     this.domainName = imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution.distributionDomainName;
+
+    this.addSvgCacheBehavior(imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution);
+  }
+
+  private addSvgCacheBehavior(distribution: Distribution): void {
+    const sourceBuckets = (this.node.getContext("sourceBuckets") as string)
+      .split(",")
+      .map((bucketName) => Bucket.fromBucketName(this, `SourceBucket-${bucketName.trim()}`, bucketName.trim()));
+
+    // Create a CF Function to remove the bucket name from the path.
+    const removeBucketNameFunction = new Function(this, "RemoveBucketName", {
+      code: FunctionCode.fromInline(`
+        function handler(event) {
+          event.request.uri = event.request.uri.replace(/\\/[^\\/]*\\//, '/');
+          return event.request;
+        }`),
+      runtime: FunctionRuntime.JS_2_0,
+    });
+
+    // Add a cache behavior to allow direct access to svg files all the buckets.
+    sourceBuckets.forEach((bucket) => {
+      distribution.addBehavior(`${bucket.bucketName}/*.svg`, new S3Origin(bucket), {
+        viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+        functionAssociations: [{ function: removeBucketNameFunction, eventType: FunctionEventType.VIEWER_REQUEST }],
+      });
+    });
   }
 }

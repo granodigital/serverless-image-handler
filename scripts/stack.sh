@@ -1,32 +1,52 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-[[ "$1" != "create" && "$1" != "update" ]] && { echo "Pass 'create' or 'update' as the first argument"; exit 1; }
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ACTION="$1"
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ACTION=${1:-}
 
-source "$DIR/setup.sh"
-
-IDENTITY_ARN="$(aws sts get-caller-identity | jq -r '.Arn')"
-if [[ ! "$IDENTITY_ARN" =~ ^arn:aws:sts::897068463773:assumed-role\/DelegatedAdmin ]]; then
-	# Check that it's the correct profile.
-	echo "The current aws session ($PROFILE_DESC) does not have Grano Shared admin privileges"
+# Action needs to be a diff, deploy or synth
+if [[ "$ACTION" != "diff" && "$ACTION" != "deploy" && "$ACTION" != "synth" ]]; then
+	echo "Usage: $0 <diff|deploy|synth>"
 	exit 1
 fi
 
-CONFIG="$DIR/../configurations/grano-serverless-image-handler.json"
-PARAMS=$(jq "[.Parameters | to_entries[] | { ParameterKey: .key, ParameterValue: .value }]" "$CONFIG")
-TAGS=$(jq '[.Tags | to_entries[] | { Key: .key, Value: .value }]' "$CONFIG")
-POLICY=$(jq '.StackPolicy' "$CONFIG")
-TEMPLATE_URL="https://s3.$REGION.amazonaws.com/$BUCKET_NAME-$REGION/$SOLUTION_NAME/$VERSION"
+(
+	cd source/constructs || exit 1
+	npm run clean:install
+)
 
-aws cloudformation "$ACTION-stack" \
-	--capabilities CAPABILITY_IAM \
-	--stack-name grano-serverless-image-handler \
-	--template-url "$TEMPLATE_URL/grano-serverless-image-handler.template" \
-	--parameters "$PARAMS" \
-	--tags "$TAGS" \
-	--stack-policy-body "$POLICY" \
-	--region eu-west-1 \
-	--output text | cat
+# If AWS_PROFILE is set already, use it.
+if [ -n "${AWS_PROFILE:-}" ]; then
+	echo "Using the current AWS_PROFILE ($AWS_PROFILE)!"
+else
+	# shellcheck source=/dev/null
+	source "$DIR/../../ecom-infrastructure/.active-profile"
+
+	# Check that AWS Profile is not missing.
+	[[ -z "${AWS_PROFILE:-}" ]] && {
+		echo "AWS_PROFILE is not set"
+		exit 1
+	}
+
+	echo "Using current active profile ($AWS_PROFILE)"
+fi
+
+cd "$DIR/../source/constructs" || exit 1
+
+SOURCE_BUCKETS="images-granoshop, images-mygrano-dev"
+
+overrideWarningsEnabled=false npx cdk "$ACTION" \
+	--no-execute \
+	--profile "$AWS_PROFILE" \
+	--context sourceBuckets="$SOURCE_BUCKETS" \
+	--context customDomain="thumb.mygrano.fi" \
+	--context certificateArn="arn:aws:acm:us-east-1:897068463773:certificate/d895b448-7f94-4042-94c7-ef6e410c8afe" \
+	--parameters SourceBucketsParameter="$SOURCE_BUCKETS" \
+	--parameters DeployDemoUIParameter=No \
+	--parameters LogRetentionPeriodParameter="365" \
+	--parameters AutoWebPParameter=Yes \
+	--parameters EnableSignatureParameter=Yes \
+	--parameters SecretsManagerSecretParameter=serverless-image-handler \
+	--parameters SecretsManagerKeyParameter=SignatureKey \
+	--parameters CloudFrontPriceClassParameter=PriceClass_100

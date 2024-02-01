@@ -4,7 +4,6 @@
 
 ## Table of Contents
 
-- [Customized Implementation for Grano](#customized-implementation-for-grano)
 - [Solution Overview](#solution-overview)
 - [Architecture Diagram](#architecture-diagram)
 - [AWS CDK and Solutions Constructs](#aws-cdk-and-solutions-constructs)
@@ -19,29 +18,32 @@
 
 # Solution Overview
 
-This is Grano's customized implementation of the serverless-image-handler. This fork of the original solution was created so
-we can implement more aggressive optimizations to get around AWS Lambda's 6 MB limit, which is easily surpassed with our images.
-
-The original code and folder structure has been retained as much as possible, in order to avoid conflicts when updating this repo
-in the future. Scripts have been added to deploy this stack to Grano's AWS resources.
-
-## Deployment
-
-In order to deploy the grano-serverless-image-handler, the solution files must be built and uploaded to S3. After this the stack can be deployed. There are scripts to handle this process.
-
-The `build.sh` script runs unit tests and build the solution files. Lambda files are built to `deployment/regional-s3-assets` and the CloudFormation template for the stack is built to `deployment/global-s3-assets`.
-
-The `upload.sh` script uploads the built files (both regional and global) to S3. The bucket is named `grano-serverless-image-handler-bucket-eu-west-1` (the region is required to be in the name of the bucket). Inside the bucket, the path of the files will be `grano-serverless-image-handler/<VERSION>/` where the version is the version number found in `source/package.json`.
-
-The `stack` script will create and execute a changeset for the `grano-serverless-image-handler` stack. The template used to create the changeset is fetched from the S3. Executing the changeset requires admin credentials, so separating these steps allows someone with developer credentials to build and upload the files, while an admin can just update/create the stack. Parameters for the template are found in `configurations/grano-serverless-image-handler.json`.
-
-# Solution Overview
+> This is Grano's customized implementation of the serverless-image-handler. This fork of the original solution was created so
+> we can implement more aggressive optimizations to get around AWS Lambda's 6 MB limit, which is easily surpassed with our images.
+>
+> The original code and folder structure has been retained as much as possible, in order to avoid conflicts when updating this repo
+> in the future. Scripts have been added to deploy this stack to Grano's AWS resources.
 
 The Serverless Image Handler solution helps to embed images on websites and mobile applications to drive user engagement. It uses [Sharp](https://sharp.pixelplumbing.com/en/stable/) to provide high-speed image processing without sacrificing image quality. To minimize costs of image optimization, manipulation, and processing, this solution automates version control and provides flexible storage and compute options for file reprocessing.
 
 This solution automatically deploys and configures a serverless architecture optimized for dynamic image manipulation. Images can be rendered and returned spontaneously. For example, an image can be resized based on different screen sizes by adding code on a website that leverages this solution to resize the image before being sent to the screen using the image. It uses [Amazon CloudFront](https://aws.amazon.com/cloudfront) for global content delivery and [Amazon Simple Storage Service](https://aws.amazon.com/s3) (Amazon S3) for reliable and durable cloud storage.
 
 For more information and a detailed deployment guide, visit the [Serverless Image Handler](https://aws.amazon.com/solutions/implementations/serverless-image-handler/) solution page.
+
+## Deployment
+
+The solution uses cdk to deploy the stack. The following steps are required to deploy the stack:
+
+- **For new AWS accounts only:** `npx cdk bootstrap --profile <ADMIN_PROFILE>`
+- Authenticate AWS CLI as `shared-developer` role.
+- Create a change set `./scripts/stack.sh deploy`
+- Login to AWS console with admin role and execute the changeset or ask an admin to do it.
+
+## Updating
+
+- `git pull upstream main` - Pull the latest changes from the upstream repo
+- You can run `./scripts/stack.sh diff` to see the changes before deploying.
+- Otherwise the steps are the same as Deployment steps above.
 
 # Architecture Diagram
 
@@ -73,7 +75,6 @@ cd serverless-image-handler
 export MAIN_DIRECTORY=$PWD
 ```
 
-
 ### 2. Unit Test
 
 After making changes, run unit tests to make sure added customization passes the tests:
@@ -84,6 +85,7 @@ chmod +x run-unit-tests.sh && ./run-unit-tests.sh
 ```
 
 ### 3. Build and Deploy
+
 ```bash
 cd $MAIN_DIRECTORY/source/constructs
 npm run clean:install
@@ -95,6 +97,7 @@ overrideWarningsEnabled=false npx cdk deploy\
 ```
 
 _Note:_
+
 - **MY_BUCKET**: name of an existing bucket in your account
 - **PROFILE_NAME**: name of an AWS CLI profile that has appropriate credentials for deploying in your preferred region
 
@@ -127,5 +130,5 @@ This solution collects anonymous operational metrics to help AWS improve the qua
 
 # License
 
-Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.   
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
