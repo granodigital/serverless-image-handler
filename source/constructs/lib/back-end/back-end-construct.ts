@@ -26,22 +26,27 @@ import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
-import { ArnFormat, Aws, Duration, Lazy, Stack } from "aws-cdk-lib";
+import { ArnFormat, Aspects, Aws, CfnCondition, Duration, Fn, Lazy, Stack } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { CloudFrontToApiGatewayToLambda } from "@aws-solutions-constructs/aws-cloudfront-apigateway-lambda";
 
 import { addCfnSuppressRules } from "../../utils/utils";
 import { SolutionConstructProps } from "../types";
 import * as api from "aws-cdk-lib/aws-apigateway";
+import { SolutionsMetrics, ExecutionDay } from "metrics-utils";
+import { ConditionAspect } from "../../utils/aspects";
 import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 
 export interface BackEndProps extends SolutionConstructProps {
   readonly solutionVersion: string;
+  readonly solutionId: string;
   readonly solutionName: string;
+  readonly sendAnonymousStatistics: CfnCondition;
   readonly secretsManagerPolicy: Policy;
   readonly logsBucket: IBucket;
   readonly uuid: string;
   readonly cloudFrontPriceClass: string;
+  readonly createSourceBucketsResource: (key?: string) => string[];
 }
 
 export class BackEnd extends Construct {
@@ -70,15 +75,16 @@ export class BackEnd extends Construct {
           ],
         }),
         new PolicyStatement({
-          actions: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
-          resources: [
-            Stack.of(this).formatArn({
-              service: "s3",
-              resource: "*",
-              region: "",
-              account: "",
-            }),
-          ],
+          actions: ["s3:GetObject"],
+          resources: props.createSourceBucketsResource("/*"),
+        }),
+        new PolicyStatement({
+          actions: ["s3:ListBucket"],
+          resources: props.createSourceBucketsResource(),
+        }),
+        new PolicyStatement({
+          actions: ["s3:GetObject"],
+          resources: [`arn:aws:s3:::${props.fallbackImageS3Bucket}/${props.fallbackImageS3KeyBucket}`],
         }),
         new PolicyStatement({
           actions: ["rekognition:DetectFaces", "rekognition:DetectModerationLabels"],
@@ -112,6 +118,8 @@ export class BackEnd extends Construct {
         ENABLE_DEFAULT_FALLBACK_IMAGE: props.enableDefaultFallbackImage,
         DEFAULT_FALLBACK_IMAGE_BUCKET: props.fallbackImageS3Bucket,
         DEFAULT_FALLBACK_IMAGE_KEY: props.fallbackImageS3KeyBucket,
+        SOLUTION_VERSION: props.solutionVersion,
+        SOLUTION_ID: props.solutionId,
       },
       bundling: {
         externalModules: ["sharp"],
@@ -237,6 +245,35 @@ export class BackEnd extends Construct {
     imageHandlerCloudFrontApiGatewayLambda.apiGateway.node.tryRemoveChild("Endpoint"); // we don't need the RestApi endpoint in the outputs
 
     this.domainName = imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution.distributionDomainName;
+
+    const shortLogRetentionCondition: CfnCondition = new CfnCondition(this, "ShortLogRetentionCondition", {
+      expression: Fn.conditionOr(
+        Fn.conditionEquals(props.logRetentionPeriod.toString(), "1"),
+        Fn.conditionEquals(props.logRetentionPeriod.toString(), "3"),
+        Fn.conditionEquals(props.logRetentionPeriod.toString(), "5")
+      ),
+    });
+    const solutionsMetrics = new SolutionsMetrics(this, "SolutionMetrics", {
+      uuid: props.uuid,
+      executionDay: Fn.conditionIf(
+        shortLogRetentionCondition.logicalId,
+        ExecutionDay.DAILY,
+        ExecutionDay.MONDAY
+      ).toString(),
+    });
+    solutionsMetrics.addLambdaInvocationCount(imageHandlerLambdaFunction.functionName);
+    solutionsMetrics.addLambdaBilledDurationMemorySize([imageHandlerLogGroup], "BilledDurationMemorySizeQuery");
+    solutionsMetrics.addCloudFrontMetric(
+      imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution.distributionId,
+      "Requests"
+    );
+
+    solutionsMetrics.addCloudFrontMetric(
+      imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution.distributionId,
+      "BytesDownloaded"
+    );
+
+    Aspects.of(solutionsMetrics).add(new ConditionAspect(props.sendAnonymousStatistics));
 
     this.addSvgCacheBehavior(imageHandlerCloudFrontApiGatewayLambda.cloudFrontWebDistribution);
   }

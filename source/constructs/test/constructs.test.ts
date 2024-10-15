@@ -7,12 +7,18 @@ import { App } from "aws-cdk-lib";
 import { ServerlessImageHandlerStack } from "../lib/serverless-image-stack";
 
 test("Serverless Image Handler Stack Snapshot", () => {
-  const app = new App();
+  const app = new App({
+    context: {
+      solutionId: "SO0023",
+      solutionName: "serverless-image-handler",
+      solutionVersion: "v6.3.1",
+    },
+  });
 
   const stack = new ServerlessImageHandlerStack(app, "TestStack", {
     solutionId: "S0ABC",
     solutionName: "sih",
-    solutionVersion: "v6.2.5",
+    solutionVersion: "v6.3.1",
   });
 
   const template = Template.fromStack(stack);
@@ -29,6 +35,15 @@ test("Serverless Image Handler Stack Snapshot", () => {
     }
     if (templateJson.Resources[key].Properties?.Content?.S3Key) {
       templateJson.Resources[key].Properties.Content.S3Key = "Omitted to remove snapshot dependency on hash";
+    }
+    if (templateJson.Resources[key].Properties?.SourceObjectKeys) {
+      templateJson.Resources[key].Properties.SourceObjectKeys = [
+        "Omitted to remove snapshot dependency on demo ui module hash",
+      ];
+    }
+    if (templateJson.Resources[key].Properties?.Environment?.Variables?.SOLUTION_VERSION) {
+      templateJson.Resources[key].Properties.Environment.Variables.SOLUTION_VERSION =
+        "Omitted to remove snapshot dependency on solution version";
     }
   });
 

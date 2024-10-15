@@ -20,16 +20,15 @@ if (DIST_OUTPUT_BUCKET && SOLUTION_NAME && VERSION)
 
 const app = new App();
 const solutionDisplayName = "Serverless Image Handler";
-const description = `(${app.node.tryGetContext("solutionId")}) - ${solutionDisplayName}. Version ${
-  VERSION ?? app.node.tryGetContext("solutionVersion")
-}`;
+const solutionVersion = VERSION ?? app.node.tryGetContext("solutionVersion");
+const description = `(${app.node.tryGetContext("solutionId")}) - ${solutionDisplayName}. Version ${solutionVersion}`;
 // eslint-disable-next-line no-new
 new ServerlessImageHandlerStack(app, "ServerlessImageHandlerStack", {
   synthesizer,
   description,
   terminationProtection: true,
   solutionId: app.node.tryGetContext("solutionId"),
-  solutionVersion: app.node.tryGetContext("solutionVersion"),
+  solutionVersion,
   solutionName: app.node.tryGetContext("solutionName"),
   stackName: "grano-serverless-image-handler-2",
 });
