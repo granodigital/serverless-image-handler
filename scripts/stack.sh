@@ -34,7 +34,7 @@ fi
 
 cd "$DIR/../source/constructs" || exit 1
 
-SOURCE_BUCKETS="images-granoshop, images-mygrano-dev"
+SOURCE_BUCKETS="images-granoshop, images-mygrano-dev, images-mygrano-stg"
 
 overrideWarningsEnabled=false npx cdk "$ACTION" \
 	--no-execute \
