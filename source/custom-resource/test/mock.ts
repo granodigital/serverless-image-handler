@@ -139,25 +139,6 @@ jest.mock("@aws-sdk/client-cloudfront", () => {
   };
 });
 
-// Mock AWS SDK v3 ServiceCatalogAppRegistry client
-export const mockServiceCatalogAppRegistryCommands = {
-  getApplication: jest.fn(),
-};
-jest.mock("@aws-sdk/client-service-catalog-appregistry", () => {
-  const actual = jest.requireActual("@aws-sdk/client-service-catalog-appregistry");
-  return {
-    ServiceCatalogAppRegistryClient: jest.fn(() => ({
-      send: jest.fn((command) => {
-        if (command instanceof actual.GetApplicationCommand) {
-          return mockServiceCatalogAppRegistryCommands.getApplication();
-        }
-        throw new Error(`Unimplemented ServiceCatalogAppRegistry command: ${command.constructor.name}`);
-      }),
-    })),
-    GetApplicationCommand: actual.GetApplicationCommand,
-  };
-});
-
 // Mock axios
 export const mockAxios = {
   put: jest.fn().mockImplementation(() => Promise.resolve()),

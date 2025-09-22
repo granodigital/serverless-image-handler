@@ -3,7 +3,6 @@
 
 import { CloudFormationClient, DescribeStackResourcesCommand } from "@aws-sdk/client-cloudformation";
 import { EC2Client, DescribeRegionsCommand, DescribeRegionsCommandInput } from "@aws-sdk/client-ec2";
-import { ServiceCatalogAppRegistryClient, GetApplicationCommand } from "@aws-sdk/client-service-catalog-appregistry";
 import {
   S3Client,
   HeadBucketCommand,
@@ -49,14 +48,12 @@ import {
   SendMetricsRequestProperties,
   StatusTypes,
   CheckFirstBucketRegionRequestProperties,
-  GetAppRegApplicationNameRequestProperties,
   ValidateExistingDistributionRequestProperties,
 } from "./lib";
 const awsSdkOptions = getOptions();
 const s3Client = new S3Client({ ...awsSdkOptions, followRegionRedirects: true });
 const ec2Client = new EC2Client(awsSdkOptions);
 const cloudformationClient = new CloudFormationClient(awsSdkOptions);
-const serviceCatalogClient = new ServiceCatalogAppRegistryClient(awsSdkOptions);
 const secretsManager = new SecretsManagerClient(awsSdkOptions);
 const cloudfrontClient = new CloudFrontClient(awsSdkOptions);
 
@@ -121,14 +118,6 @@ export async function handler(event: CustomResourceRequest, context: LambdaConte
           ...ResourceProperties,
           StackId: event.StackId,
         } as CheckFirstBucketRegionRequestProperties);
-        break;
-      }
-      case CustomResourceActions.GET_APP_REG_APPLICATION_NAME: {
-        const allowedRequestTypes = [CustomResourceRequestTypes.CREATE, CustomResourceRequestTypes.UPDATE];
-        await performRequest(getAppRegApplicationName, RequestType, allowedRequestTypes, response, {
-          ...ResourceProperties,
-          StackId: event.StackId,
-        } as GetAppRegApplicationNameRequestProperties);
         break;
       }
       case CustomResourceActions.VALIDATE_EXISTING_DISTRIBUTION: {
@@ -526,37 +515,6 @@ async function checkFirstBucketRegion(
   }
 }
 
-/**
- * Provides the existing app registry application name if it exists, otherwise, returns the default.
- * @param requestProperties The request properties.
- * @returns The application name to use.
- */
-async function getAppRegApplicationName(
-  requestProperties: GetAppRegApplicationNameRequestProperties
-): Promise<{ ApplicationName?: string }> {
-  try {
-    const stackResources = await cloudformationClient.send(
-      new DescribeStackResourcesCommand({
-        StackName: requestProperties.StackId,
-        LogicalResourceId: "AppRegistry968496A3",
-      })
-    );
-
-    const application = await serviceCatalogClient.send(
-      new GetApplicationCommand({
-        application: stackResources.StackResources[0].PhysicalResourceId,
-      })
-    );
-    return {
-      ApplicationName: application?.name ?? requestProperties.DefaultName,
-    };
-  } catch (error) {
-    console.error(error);
-    return {
-      ApplicationName: requestProperties.DefaultName,
-    };
-  }
-}
 
 /**
  * Validates the existences of the CloudFront distribution provided. Retrieves the domain name.

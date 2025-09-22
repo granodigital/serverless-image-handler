@@ -39,10 +39,6 @@ export interface CheckFirstBucketRegionRequestProperties extends CheckSourceBuck
   StackId: string;
 }
 
-export interface GetAppRegApplicationNameRequestProperties extends CustomResourceRequestPropertiesBase {
-  StackId: string;
-  DefaultName: string;
-}
 
 export interface ValidateExistingDistributionRequestProperties extends CustomResourceRequestPropertiesBase {
   ExistingDistributionID: string;

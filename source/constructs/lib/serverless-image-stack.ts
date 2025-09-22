@@ -47,9 +47,9 @@ export class ServerlessImageHandlerStack extends Stack {
     const sourceBucketsParameter = new CfnParameter(this, "SourceBucketsParameter", {
       type: "String",
       description:
-        "(Required) List the buckets (comma-separated) within your account that contain original image files. If you plan to use Thumbor or Custom image requests with this solution, the source bucket for those requests will default to the first bucket listed in this field.",
-      allowedPattern: ".+",
-      default: "defaultBucket, bucketNo2, bucketNo3, ...",
+        "(Required) List the buckets (comma-separated) within your account that contain original image files. If you plan to use Thumbor or Custom image requests with this solution, the source bucket for those requests will default to the first bucket listed in this field. e.g. (defaultBucket,bucketNo2,bucketNo3,...)",
+      allowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?:\\s*,\\s*[a-z0-9][a-z0-9.-]{1,61}[a-z0-9])*$",
+      constraintDescription: "Source bucket is required. Please provide at least one valid S3 bucket name that is present in your account.",
     });
 
     const deployDemoUIParameter = new CfnParameter(this, "DeployDemoUIParameter", {
@@ -314,14 +314,6 @@ export class ServerlessImageHandlerStack extends Stack {
     commonResources.customResources.setupPutWebsiteConfigCustomResource({
       hostingBucket: frontEnd.websiteHostingBucket,
       apiEndpoint: apiEndpointConditionString,
-    });
-
-    commonResources.appRegistryApplication({
-      description: `${props.solutionId} - ${props.solutionName}. Version ${props.solutionVersion}`,
-      solutionVersion: props.solutionVersion,
-      solutionId: props.solutionId,
-      solutionName: props.solutionName,
-      applicationName: commonResources.customResources.appRegApplicationName,
     });
 
     this.templateOptions.metadata = {

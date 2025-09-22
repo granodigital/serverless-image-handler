@@ -703,6 +703,7 @@ detect-libc under the Apache-2.0 license.
 @aws-sdk/middleware-sdk-ec2 under the Apache-2.0 license.
 @aws-sdk/util-format-url under the Apache-2.0 license.
 @aws-sdk/client-s3 under the Apache-2.0 license.
+@aws-sdk/client-rekognition under the Apache-2.0 license.
 @aws-crypto/sha1-browser under the Apache-2.0 license.
 @aws-sdk/middleware-bucket-endpoint under the Apache-2.0 license.
 @aws-sdk/util-arn-parser under the Apache-2.0 license.
@@ -718,11 +719,8 @@ detect-libc under the Apache-2.0 license.
 @smithy/chunked-blob-reader-native under the Apache-2.0 license.
 @smithy/hash-stream-node under the Apache-2.0 license.
 @aws-sdk/client-secrets-manager under the Apache-2.0 license.
-@aws-sdk/client-service-catalog-appregistry under the Apache-2.0 license.
-@aws-sdk/client-rekognition under the Apache-2.0 license.
 moment under the MIT license.
 metrics-utils under the Apache-2.0 license.
-@aws-cdk/aws-servicecatalogappregistry-alpha under the Apache-2.0 license.
 @aws-solutions-constructs/aws-apigateway-lambda under the Apache-2.0 license.
 code-point-at under the MIT license.
 core-util-is under the MIT license.
