@@ -1,6 +1,6 @@
 {
   "name": "constructs",
-  "version": "7.0.6",
+  "version": "7.0.7",
   "description": "Dynamic Image Transformation for Amazon CloudFront Constructs",
   "license": "Apache-2.0",
   "author": {
@@ -21,7 +21,6 @@
     "bump-version": "npm version $(cat ../../VERSION.txt) --allow-same-version"
   },
   "devDependencies": {
-    "@aws-cdk/aws-servicecatalogappregistry-alpha": "v2.118.0-alpha.0",
     "@aws-solutions-constructs/aws-apigateway-lambda": "2.51.0",
     "@aws-solutions-constructs/aws-cloudfront-apigateway-lambda": "2.51.0",
     "@aws-solutions-constructs/aws-cloudfront-s3": "2.51.0",
