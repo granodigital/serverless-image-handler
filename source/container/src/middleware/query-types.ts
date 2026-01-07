@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Credit to xpepermint: https://github.com/xpepermint/query-types
+const MAX_ARRAY_LENGTH = 25;
 
 function isObject(val) {
   return val.constructor === Object;
@@ -66,7 +67,7 @@ function parseBoolean(val) {
 function parseNestedArray(val) {
   // If no brackets and has comma, treat as simple comma-separated array
   if (!val.includes('[') && val.includes(',')) {
-    return val.split(',').map(item => parseValue(item.trim()));
+    return val.split(',').slice(0, MAX_ARRAY_LENGTH).map(item => parseValue(item.trim()));
   }
   
   // Strip outer brackets if entire string is wrapped
@@ -100,12 +101,12 @@ function parseNestedArray(val) {
   const result = parts.map(part => {
     if (part.startsWith('[') && part.endsWith(']')) {
       const inner = part.slice(1, -1);
-      return inner.split(',').map(item => parseValue(item.trim()));
+      return inner.split(',').slice(0, MAX_ARRAY_LENGTH).map(item => parseValue(item.trim()));
     }
     return parseValue(part);
   });
   
-  return result;
+  return result.slice(0, MAX_ARRAY_LENGTH);
 }
 
 function queryTypesMiddleware() {
@@ -113,14 +114,16 @@ function queryTypesMiddleware() {
     const qs = require('qs');
     const queryString = req.url.split('?')[1] || '';
 
+    const MAX_ARRAY_LENGTH = 10;
+
     const parsedQuery = qs.parse(queryString, {
       parameterLimit: 50,
       depth: 2,
-      arrayLimit: 10,
+      arrayLimit: MAX_ARRAY_LENGTH,
       ignoreQueryPrefix: true,
       comma: false
     });
-    
+
     req.query = parseObject(parsedQuery);
     next();
   }
