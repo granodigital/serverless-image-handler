@@ -1412,6 +1412,10 @@ kotlin-stdlib/kotlin-stdlib under the Apache-2.0 license.
 ion-element/ion-element under the Apache-2.0 license.
 checker-qual/checker-qual under the MIT license.
 com.amazon.ion.java/IonJava under the Apache-2.0 license.
+@aws-sdk/credential-provider-login under the Apache-2.0 license.
+@aws-sdk/dynamodb-codec under the Apache-2.0 license.
+@aws-sdk/crc64-nvme under the Apache-2.0 license.
+
 
 ********************
 OPEN SOURCE LICENSES

@@ -182,7 +182,7 @@ export class AlbEcsConstruct extends Construct {
 
     const environment: { [key: string]: string } = {
       SOLUTION_ID: "SO0023",
-      SOLUTION_VERSION: "v8.0.0",
+      SOLUTION_VERSION: "v8.0.2",
     };
 
     if (configTableArn) {
