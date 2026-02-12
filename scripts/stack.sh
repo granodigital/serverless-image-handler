@@ -34,6 +34,30 @@ fi
 
 cd "$DIR/../source/constructs" || exit 1
 
+CERTIFICATE_ARN="arn:aws:acm:us-east-1:897068463773:certificate/5a7f1107-af4b-41b8-b428-7fed3ec17942"
+
+# Validate that the ACM certificate exists and is issued before deploying.
+# CloudFront will reject updates if the certificate is expired or deleted.
+CERT_STATUS=$(aws acm describe-certificate \
+	--certificate-arn "$CERTIFICATE_ARN" \
+	--region us-east-1 \
+	--profile "$AWS_PROFILE" \
+	--query 'Certificate.Status' \
+	--output text 2>&1) || {
+	echo "ERROR: Could not describe certificate $CERTIFICATE_ARN"
+	echo "$CERT_STATUS"
+	exit 1
+}
+
+if [ "$CERT_STATUS" != "ISSUED" ]; then
+	echo "ERROR: Certificate is not in ISSUED state (current status: $CERT_STATUS)"
+	echo "       ARN: $CERTIFICATE_ARN"
+	echo "       Check the certificate in ACM (us-east-1) before deploying."
+	exit 1
+fi
+
+echo "Certificate is valid (status: $CERT_STATUS)"
+
 SOURCE_BUCKETS="images-granoshop,images-mygrano-dev,images-mygrano-stg"
 
 EXTRA_ARGS=""
@@ -48,7 +72,7 @@ overrideWarningsEnabled=false npx cdk "$ACTION" v7-Stack \
 	--profile "$AWS_PROFILE" \
 	--context sourceBuckets="$SOURCE_BUCKETS" \
 	--context customDomain="thumb.mygrano.fi" \
-	--context certificateArn="arn:aws:acm:us-east-1:897068463773:certificate/d895b448-7f94-4042-94c7-ef6e410c8afe" \
+	--context certificateArn="$CERTIFICATE_ARN" \
 	--parameters SourceBucketsParameter="$SOURCE_BUCKETS" \
 	--parameters DeployDemoUIParameter=No \
 	--parameters LogRetentionPeriodParameter="365" \
