@@ -9,7 +9,8 @@ import {
   CustomResourceRequestPropertiesBase,
   PutConfigRequestProperties,
   SendMetricsRequestProperties,
-  GetAppRegApplicationNameRequestProperties,
+  CheckFirstBucketRegionRequestProperties,
+  ValidateExistingDistributionRequestProperties,
 } from "./interfaces";
 
 export type ResourcePropertyTypes =
@@ -20,7 +21,8 @@ export type ResourcePropertyTypes =
   | CheckSecretManagerRequestProperties
   | CheckFallbackImageRequestProperties
   | CreateLoggingBucketRequestProperties
-  | GetAppRegApplicationNameRequestProperties;
+  | CheckFirstBucketRegionRequestProperties
+  | ValidateExistingDistributionRequestProperties;
 
 export class CustomResourceError extends Error {
   constructor(public readonly code: string, public readonly message: string) {
