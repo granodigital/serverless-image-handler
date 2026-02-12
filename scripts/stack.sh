@@ -36,8 +36,14 @@ cd "$DIR/../source/constructs" || exit 1
 
 SOURCE_BUCKETS="images-granoshop,images-mygrano-dev,images-mygrano-stg"
 
+EXTRA_ARGS=""
+if [ "$ACTION" = "diff" ]; then
+	EXTRA_ARGS="--no-change-set"
+fi
+
 # v7-Stack is the upstream name for the Lambda architecture stack (v8-Stack is ECS)
 overrideWarningsEnabled=false npx cdk "$ACTION" v7-Stack \
+	$EXTRA_ARGS \
 	--no-execute \
 	--profile "$AWS_PROFILE" \
 	--context sourceBuckets="$SOURCE_BUCKETS" \
