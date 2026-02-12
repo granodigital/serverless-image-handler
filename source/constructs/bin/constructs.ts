@@ -35,6 +35,8 @@ const description = `(${solutionId}) - ${solutionDisplayName}. Version ${solutio
 new ServerlessImageHandlerStack(app, "v7-Stack", {
   synthesizer,
   description,
+  terminationProtection: true,
+  stackName: "grano-serverless-image-handler-2",
   solutionId,
   solutionVersion,
   solutionName,

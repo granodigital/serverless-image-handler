@@ -21,6 +21,7 @@ import {
   IDistribution,
 } from "aws-cdk-lib/aws-cloudfront";
 import { HttpOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { Certificate, ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { CfnLogGroup } from "aws-cdk-lib/aws-logs";
 import { Aspects, Aws, CfnCondition, Duration, Fn, Lazy } from "aws-cdk-lib";
@@ -70,6 +71,14 @@ export class ApiGatewayArchitecture {
     });
     Aspects.of(requestModifierFunction).add(new ConditionAspect(props.conditions.disableS3ObjectLambdaCondition));
 
+    // Grano customization: support custom domain via CDK context
+    const customDomain = scope.node.tryGetContext("customDomain") as string | undefined;
+    const certificateArn = scope.node.tryGetContext("certificateArn") as string | undefined;
+    let certificate: ICertificate | undefined;
+    if (certificateArn) {
+      certificate = Certificate.fromCertificateArn(scope, "Certificate", certificateArn);
+    }
+
     const cloudFrontDistributionProps: DistributionProps = {
       comment: "Image Handler Distribution for Dynamic Image Transformation for Amazon CloudFront",
       defaultBehavior: {
@@ -89,6 +98,8 @@ export class ApiGatewayArchitecture {
       enableLogging: true,
       logBucket: props.logsBucket,
       logFilePrefix: "api-cloudfront/",
+      ...(customDomain && { domainNames: [customDomain] }),
+      ...(certificate && { certificate }),
       errorResponses: [
         { httpStatus: 500, ttl: Duration.minutes(10) },
         { httpStatus: 501, ttl: Duration.minutes(10) },

@@ -7,16 +7,22 @@ import {
   CachePolicy,
   CacheQueryStringBehavior,
   Distribution,
+  Function,
+  FunctionCode,
+  FunctionEventType,
+  FunctionRuntime,
   OriginRequestHeaderBehavior,
   OriginRequestPolicy,
   OriginRequestQueryStringBehavior,
+  ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
+import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Policy, PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { Conditions } from "../common-resources/common-resources-construct";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { CfnLogGroup, LogGroup, QueryString } from "aws-cdk-lib/aws-logs";
-import { IBucket } from "aws-cdk-lib/aws-s3";
+import { Bucket, IBucket } from "aws-cdk-lib/aws-s3";
 import { ArnFormat, Aspects, Aws, CfnCondition, CfnResource, Duration, Fn, Stack } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { addCfnSuppressRules } from "../../utils/utils";
@@ -280,5 +286,32 @@ export class BackEnd extends Construct {
     this.operationalDashboard = operationalInsightsDashboard.dashboard;
 
     Aspects.of(operationalInsightsDashboard).add(new ConditionAspect(props.deployCloudWatchDashboard));
+
+    // Grano customization: serve SVG files directly from S3 via CloudFront, bypassing Lambda
+    this.addSvgCacheBehavior(apiGatewayArchitecture.imageHandlerCloudFrontDistribution);
+  }
+
+  private addSvgCacheBehavior(distribution: Distribution): void {
+    const sourceBuckets = (this.node.getContext("sourceBuckets") as string)
+      .split(",")
+      .map((bucketName) => Bucket.fromBucketName(this, `SourceBucket-${bucketName.trim()}`, bucketName.trim()));
+
+    // Create a CF Function to remove the bucket name from the path.
+    const removeBucketNameFunction = new Function(this, "RemoveBucketName", {
+      code: FunctionCode.fromInline(`
+        function handler(event) {
+          event.request.uri = event.request.uri.replace(/\\/[^\\/]*\\//, '/');
+          return event.request;
+        }`),
+      runtime: FunctionRuntime.JS_2_0,
+    });
+
+    // Add a cache behavior to allow direct access to svg files from all the buckets.
+    sourceBuckets.forEach((bucket) => {
+      distribution.addBehavior(`${bucket.bucketName}/*.svg`, S3BucketOrigin.withOriginAccessControl(bucket), {
+        viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+        functionAssociations: [{ function: removeBucketNameFunction, eventType: FunctionEventType.VIEWER_REQUEST }],
+      });
+    });
   }
 }

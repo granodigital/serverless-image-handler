@@ -18,11 +18,29 @@
 
 # Solution Overview
 
+> This is Grano's customized fork of the Dynamic Image Transformation for Amazon CloudFront solution (formerly Serverless Image Handler).
+> Custom additions include SVG direct-serve via CloudFront (bypassing Lambda), custom domain support, and Grano-specific deployment scripts.
+
 The Dynamic Image Transformation for Amazon CloudFront solution helps to embed images on websites and mobile applications to drive user engagement. It uses [Sharp](https://sharp.pixelplumbing.com/en/stable/) to provide high-speed image processing without sacrificing image quality. To minimize costs of image optimization, manipulation, and processing, this solution automates version control and provides flexible storage and compute options for file reprocessing.
 
 This solution automatically deploys and configures a serverless architecture optimized for dynamic image manipulation. Images can be rendered and returned spontaneously. For example, an image can be resized based on different screen sizes by adding code on a website that leverages this solution to resize the image before being sent to the screen using the image. It uses [Amazon CloudFront](https://aws.amazon.com/cloudfront) for global content delivery and [Amazon Simple Storage Service](https://aws.amazon.com/s3) (Amazon S3) for reliable and durable cloud storage.
 
 For more information and a detailed deployment guide, visit the [Dynamic Image Transformation for Amazon CloudFront](https://aws.amazon.com/solutions/implementations/dynamic-image-transformation-for-amazon-cloudfront/) solution page.
+
+## Deployment
+
+The solution uses CDK to deploy the stack. The following steps are required to deploy the stack:
+
+- **For new AWS accounts only:** `npx cdk bootstrap --profile <ADMIN_PROFILE>`
+- Authenticate AWS CLI as `shared-developer` role.
+- Create a change set `./scripts/stack.sh deploy`
+- Login to AWS console with admin role and execute the changeset or ask an admin to do it.
+
+## Updating
+
+- `git pull upstream main` - Pull the latest changes from the upstream repo
+- You can run `./scripts/stack.sh diff` to see the changes before deploying.
+- Otherwise the steps are the same as Deployment steps above.
 
 # Architecture Diagram
 

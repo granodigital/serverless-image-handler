@@ -31,6 +31,10 @@ export class ServerlessImageHandlerStack extends Stack {
   constructor(scope: Construct, id: string, props: ServerlessImageHandlerStackProps) {
     super(scope, id, props);
 
+    Tags.of(this).add("cost_center", "8330 ecomm");
+    Tags.of(this).add("project", "ecom");
+    Tags.of(this).add("environment", "production");
+
     const corsEnabledParameter = new CfnParameter(this, "CorsEnabledParameter", {
       type: "String",
       description: `Would you like to enable Cross-Origin Resource Sharing (CORS) for the image handler API? Select 'Yes' if so.`,
@@ -214,7 +218,7 @@ export class ServerlessImageHandlerStack extends Stack {
     const solutionMapping = new CfnMapping(this, "Solution", {
       mapping: {
         Config: {
-          AnonymousUsage: "Yes",
+          AnonymousUsage: "No",
           DeployCloudWatchDashboard: "Yes",
           SolutionId: props.solutionId,
           Version: props.solutionVersion,
