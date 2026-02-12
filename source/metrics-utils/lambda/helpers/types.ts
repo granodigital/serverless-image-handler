@@ -4,16 +4,20 @@
 import { MetricDataQuery } from "@aws-sdk/client-cloudwatch";
 import { StartQueryCommandInput } from "@aws-sdk/client-cloudwatch-logs";
 import { QueryDefinitionProps } from "aws-cdk-lib/aws-logs";
+// eslint-disable-next-line import/no-unresolved
 import { EventBridgeEvent, SQSEvent } from "aws-lambda";
-export interface QueryProps extends Pick<StartQueryCommandInput, "queryString" | "logGroupNames"> {}
-export interface EventBridgeQueryEvent extends Pick<EventBridgeEvent<"Scheduled Event", {}>, "detail-type" | "time"> {
-  "metrics-data-query": MetricDataProps[];
+export type QueryProps = Pick<StartQueryCommandInput, "queryString" | "logGroupNames">;
+export interface EventBridgeQueryEvent
+  extends Pick<EventBridgeEvent<"Scheduled Event", NonNullable<unknown>>, "detail-type" | "time"> {
+  "metrics-data-query": MetricDataQuery[];
 }
 
 export interface MetricDataProps
-  extends Pick<MetricDataQuery, "MetricStat" | "Expression" | "Label" | "ReturnData" | "Period" | "Id"> {
-    region?: string
-  }
+  extends Pick<MetricDataQuery, "MetricStat" | "Expression" | "Label" | "ReturnData" | "Period">,
+    Partial<Pick<MetricDataQuery, "Id">> {
+  identifier?: string;
+  region?: string;
+}
 
 export enum ExecutionDay {
   DAILY = "*",
@@ -31,6 +35,7 @@ export interface SolutionsMetricProps {
   metricDataProps?: MetricDataProps[];
   queryProps?: QueryDefinitionProps[];
   executionDay?: string;
+  configTableArn?: string;
 }
 
 export interface SQSEventBody {
@@ -53,13 +58,25 @@ export interface MetricPayload {
   Version: string;
   UUID: string;
   TimeStamp: string;
+  AccountId: string;
+  StackId: string;
   Data: MetricPayloadData;
 }
 
-export function isEventBridgeQueryEvent(event: any): event is EventBridgeQueryEvent {
+/**
+ *
+ * @param {EventBridgeQueryEvent | SQSEvent} event The event to be analyzed
+ * @returns {boolean} Whether the event is an EventBridgeQueryEvent
+ */
+export function isEventBridgeQueryEvent(event: EventBridgeQueryEvent | SQSEvent): event is EventBridgeQueryEvent {
   return "detail-type" in event && "time" in event && "metrics-data-query" in event;
 }
 
-export function isSQSEvent(event: any): event is SQSEvent {
+/**
+ *
+ * @param {EventBridgeQueryEvent | SQSEvent} event The event to be analyzed
+ * @returns {boolean} Whether the event is an SQSEvent
+ */
+export function isSQSEvent(event: EventBridgeQueryEvent | SQSEvent): event is SQSEvent {
   return "Records" in event && Array.isArray(event.Records);
 }

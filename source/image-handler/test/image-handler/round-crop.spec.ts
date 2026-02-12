@@ -1,17 +1,19 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import Rekognition from "aws-sdk/clients/rekognition";
-import S3 from "aws-sdk/clients/s3";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { RekognitionClient } from "@aws-sdk/client-rekognition";
+import { S3Client } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 
 import { ImageHandler } from "../../image-handler";
 import { ImageEdits } from "../../lib";
 
-const s3Client = new S3();
-const rekognitionClient = new Rekognition();
+const s3Client = new S3Client();
+const rekognitionClient = new RekognitionClient();
 
-//jest spies
+// jest spies
 const hasRoundCropSpy = jest.spyOn(ImageHandler.prototype as any, "hasRoundCrop");
 const validRoundCropParamSpy = jest.spyOn(ImageHandler.prototype as any, "validRoundCropParam");
 const compositeSpy = jest.spyOn(sharp.prototype, "composite");

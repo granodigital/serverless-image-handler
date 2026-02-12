@@ -47,7 +47,7 @@ const SHARP_IMAGE_OPERATIONS = {
   RESIZE_OPERATIONS: ["resize", "extend", "extract", "trim"] as const,
 } as const;
 
-export const SHARP_EDIT_ALLOWLIST_ARRAY = [
+export const SHARP_EDIT_ALLOWLIST_ARRAY: string[] = [
   ...SHARP_IMAGE_OPERATIONS.CHANNEL_FUNCTIONS,
   ...SHARP_IMAGE_OPERATIONS.COLOR_FUNCTIONS,
   ...SHARP_IMAGE_OPERATIONS.OPERATION_FUNCTIONS,
@@ -66,6 +66,7 @@ export const HEADER_DENY_LIST = [
   /^www-authenticate$/i,
   /^proxy-authenticate$/i,
   /^x-api-key$/i,
+  /^set-cookie$/i,
 
   // Security Header Patterns
   /^x-frame-.*$/i,

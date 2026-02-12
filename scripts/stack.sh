@@ -34,9 +34,10 @@ fi
 
 cd "$DIR/../source/constructs" || exit 1
 
-SOURCE_BUCKETS="images-granoshop, images-mygrano-dev, images-mygrano-stg"
+SOURCE_BUCKETS="images-granoshop,images-mygrano-dev,images-mygrano-stg"
 
-overrideWarningsEnabled=false npx cdk "$ACTION" \
+# v7-Stack is the upstream name for the Lambda architecture stack (v8-Stack is ECS)
+overrideWarningsEnabled=false npx cdk "$ACTION" v7-Stack \
 	--no-execute \
 	--profile "$AWS_PROFILE" \
 	--context sourceBuckets="$SOURCE_BUCKETS" \
@@ -47,6 +48,7 @@ overrideWarningsEnabled=false npx cdk "$ACTION" \
 	--parameters LogRetentionPeriodParameter="365" \
 	--parameters AutoWebPParameter=Yes \
 	--parameters EnableSignatureParameter=Yes \
+	--parameters EnableS3ObjectLambdaParameter=No \
 	--parameters SecretsManagerSecretParameter=serverless-image-handler \
 	--parameters SecretsManagerKeyParameter=SignatureKey \
 	--parameters CloudFrontPriceClassParameter=PriceClass_100
