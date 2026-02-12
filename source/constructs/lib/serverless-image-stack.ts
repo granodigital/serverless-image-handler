@@ -219,7 +219,7 @@ export class ServerlessImageHandlerStack extends Stack {
       mapping: {
         Config: {
           AnonymousUsage: "No",
-          DeployCloudWatchDashboard: "Yes",
+          DeployCloudWatchDashboard: "No",
           SolutionId: props.solutionId,
           Version: props.solutionVersion,
           SharpSizeLimit: "",
