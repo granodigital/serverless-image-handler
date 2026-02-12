@@ -36,6 +36,7 @@ cd "$DIR/../source/constructs" || exit 1
 
 SOURCE_BUCKETS="images-granoshop,images-mygrano-dev,images-mygrano-stg"
 
+# v7-Stack is the upstream name for the Lambda architecture stack (v8-Stack is ECS)
 overrideWarningsEnabled=false npx cdk "$ACTION" v7-Stack \
 	--no-execute \
 	--profile "$AWS_PROFILE" \
