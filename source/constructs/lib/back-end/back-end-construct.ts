@@ -16,7 +16,7 @@ import {
   OriginRequestQueryStringBehavior,
   ViewerProtocolPolicy,
 } from "aws-cdk-lib/aws-cloudfront";
-import { S3BucketOrigin } from "aws-cdk-lib/aws-cloudfront-origins";
+import { S3Origin } from "aws-cdk-lib/aws-cloudfront-origins";
 import { Policy, PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { Conditions } from "../common-resources/common-resources-construct";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
@@ -308,7 +308,7 @@ export class BackEnd extends Construct {
 
     // Add a cache behavior to allow direct access to svg files from all the buckets.
     sourceBuckets.forEach((bucket) => {
-      distribution.addBehavior(`${bucket.bucketName}/*.svg`, S3BucketOrigin.withOriginAccessControl(bucket), {
+      distribution.addBehavior(`${bucket.bucketName}/*.svg`, new S3Origin(bucket), {
         viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
         functionAssociations: [{ function: removeBucketNameFunction, eventType: FunctionEventType.VIEWER_REQUEST }],
       });
