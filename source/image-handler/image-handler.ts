@@ -109,6 +109,10 @@ export class ImageHandler {
       failOnError: false,
       animated: imageRequestInfo.contentType === ContentTypes.GIF,
       limitInputPixels,
+      // Lift libvips' conservative 50MB cumulative memory limit for TIFF tag loading.
+      // Large TIFFs (e.g. from Photoshop) with XMP/IPTC metadata can exceed it.
+      // The Lambda memory limit and limitInputPixels still guard against abuse.
+      unlimited: true,
     };
     try {
       // Return early if no edits are required
