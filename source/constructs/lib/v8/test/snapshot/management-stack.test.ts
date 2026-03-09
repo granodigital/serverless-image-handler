@@ -14,13 +14,15 @@ describe("ManagementStack", () => {
   let template: Template;
 
   beforeEach(() => {
-    app = new App();
+    process.env.SOLUTION_ID = "SO0023";
+    process.env.VERSION = "v8.0.3";
 
+    app = new App();
     stack = new ManagementStack(app, "TestManagementStack", {
       description: "Test Management Stack for DIT v8",
-      solutionId: "SO0023",
+      solutionId: process.env.SOLUTION_ID,
       solutionName: "dynamic-image-transformation-for-amazon-cloudfront",
-      solutionVersion: "v8.0.0",
+      solutionVersion: process.env.VERSION,
     });
 
     template = Template.fromStack(stack);

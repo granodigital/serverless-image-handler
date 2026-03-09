@@ -99,7 +99,11 @@ export const transformationSchemas = {
       message: "At least width or height must be provided",
     }),
   tint: colorSchema,
-  rotate: z.number().transform((val) => val % 360),
+  rotate: z.union([
+    z.number().transform((val) => val % 360),
+    z.literal('null'),
+    z.null(),
+  ]),
   sharpen: z.union([
     z.boolean(), // when used without sigma value, performs a fast, mild sharpen of the output image
     z.strictObject({

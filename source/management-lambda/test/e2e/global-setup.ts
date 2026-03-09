@@ -14,7 +14,7 @@ const globalSetup = async (): Promise<void> => {
   const solution = await new CfnClient(region).readCfnStackDetails(stackName);
   const cognitoClient = new CognitoClient(region);
 
-  await new DynamoDBClient(region, solution.configTable).recreateTable();
+  await new DynamoDBClient(region, solution.configTable).clearTable();
 
   const { base64Credentials, clientId } = await cognitoClient.createCognitoAppClient({
     userPoolId: solution.userPoolId,
@@ -32,9 +32,11 @@ const globalSetup = async (): Promise<void> => {
     TEST_CLIENT_ID: clientId,
     API_URL: solution.apiUrl,
     USER_POOL_ID: solution.userPoolId,
+    TABLE_NAME: solution.configTable,
+    CONSOLE_URL: solution.consoleUrl,
   });
 
-  console.log(" 🔧 Global setup complete ✅ ");
+  console.log(" 🔧 Global setup complete, dynamodb cleared and test cognito app client configured");
   console.log(" 🚀 Starting test execution...");
 };
 

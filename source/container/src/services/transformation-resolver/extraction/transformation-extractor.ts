@@ -43,18 +43,16 @@ export function extractUrlTransformations(req: Request, requestId: string): Tran
             
       if (parser && schema) {
         const parsedValue = parser(transformationParams);        
-        if (parsedValue !== null && parsedValue !== undefined) {
-          const validation = schema.safeParse(parsedValue);
-          
-          if (validation.success) {
-            transformations.push({
-              type: transformationType,
-              value: validation.data,
-              source: 'url'
-            });
-          } else {
-            console.warn(`Invalid ${transformationType} transformation:`, validation.error.issues);
-          }
+        const validation = schema.safeParse(parsedValue);
+        
+        if (validation.success) {
+          transformations.push({
+            type: transformationType,
+            value: validation.data,
+            source: 'url'
+          });
+        } else {
+          console.warn(`Invalid ${transformationType} transformation:`, validation.error.issues);
         }
       }
     }

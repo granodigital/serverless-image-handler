@@ -10,13 +10,12 @@ import { DynamoDBTestSetup } from '../../setup/dynamodb-setup';
 import { ValidationError } from '../../../../src/services/request-resolver/errors/validation.error';
 import { OriginNotFoundError } from '../../../../src/services/request-resolver/errors/origin-not-found.error';
 import { ConnectionError } from '../../../../src/services/request-resolver/errors/connection.error';
-import axios from 'axios';
 import { Request } from 'express';
 import { ImageProcessingRequest } from '../../../../src/types/image-processing-request';
 
-// Mock axios for network calls
-jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+// Mock fetch for HTTP origin validation
+global.fetch = jest.fn();
+const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
 
 // Mock S3Client
 jest.mock('@aws-sdk/client-s3');
@@ -51,12 +50,13 @@ describe('RequestResolverService Integration Tests', () => {
     // Get fresh singleton instance
     requestResolver = RequestResolverService.getInstance();
     
-    // Mock successful axios responses by default
-    mockedAxios.head.mockResolvedValue({
-      headers: { 'content-type': 'image/jpeg' }
-    });
-    mockedAxios.isAxiosError.mockReturnValue(false);
-    
+    // Mock fetch responses for HTTP origins
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'image/jpeg' }),
+    } as Response);
+
     // Mock S3Client responses by default
     mockS3Send.mockResolvedValue({
       ContentType: 'image/jpeg'

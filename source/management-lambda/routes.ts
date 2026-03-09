@@ -6,11 +6,12 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { Method } from "@middy/http-router";
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Handler as LambdaHandler } from "aws-lambda/handler";
+import { getOptions } from "../solution-utils/get-options";
 import { translateConfig } from "./common";
 import { MappingService, OriginService, TransformationPolicyService } from "./services";
 
 const table = process.env.CONFIG_TABLE_NAME;
-const ddbDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), translateConfig);
+const ddbDocClient = DynamoDBDocumentClient.from(new DynamoDBClient(getOptions()), translateConfig);
 
 // Initialize all services
 const policyService = new TransformationPolicyService(table, ddbDocClient);

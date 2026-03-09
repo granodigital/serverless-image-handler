@@ -33,6 +33,6 @@ describe("allowlist", () => {
 
     // Assert
     expect(toFileSpy).toBeCalledTimes(0);
-    expect(rotateSpy).toBeCalledTimes(0);
+    expect(rotateSpy).toBeCalledTimes(1);
   });
 });

@@ -19,6 +19,7 @@ import {
   QueryDefinition,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { getOptions } from "../../../solution-utils/get-options";
 import {
   EventBridgeQueryEvent,
   MetricPayload,
@@ -31,7 +32,6 @@ import {
 
 import { SQSEvent } from "aws-lambda";
 import { ClientHelper } from "./client-helper";
-import axios, { RawAxiosRequestConfig } from "axios";
 
 const METRICS_ENDPOINT = "https://metrics.awssolutionsbuilder.com/generic";
 const RETRY_LIMIT = 3;
@@ -47,7 +47,7 @@ export class MetricsHelper {
 
   getDynamoDbClient(): DynamoDBClient {
     if (!this.dynamoDbClient) {
-      this.dynamoDbClient = new DynamoDBClient({});
+      this.dynamoDbClient = new DynamoDBClient(getOptions());
     }
     return this.dynamoDbClient;
   }
@@ -325,15 +325,15 @@ export class MetricsHelper {
 
       const payloadStr = JSON.stringify(payload);
 
-      const config: RawAxiosRequestConfig = {
-        headers: {
-          "content-type": "application/json",
-          "content-length": payloadStr.length,
-        },
-      };
-
       console.info("Sending anonymous metric", payloadStr);
-      await axios.post(METRICS_ENDPOINT, payloadStr, config);
+      await fetch(METRICS_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(payloadStr.length),
+        },
+        body: payloadStr,
+      });
 
       result.Message = "Anonymous data was sent successfully.";
     } catch (err) {

@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import axios, { RawAxiosRequestConfig, AxiosResponse } from "axios";
+
 import { randomUUID } from "crypto";
 import moment from "moment";
 
@@ -95,15 +95,16 @@ async function sendAnonymousMetric(
     result.Data = payload;
 
     const payloadStr = JSON.stringify(payload);
-    const config: RawAxiosRequestConfig = {
-      headers: {
-        "content-type": "application/json",
-        "content-length": payloadStr.length,
-      },
-    };
 
     console.info("Sending anonymous metric", payloadStr);
-    const response = await axios.post(METRICS_ENDPOINT, payloadStr, config);
+    const response = await fetch(METRICS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(payloadStr.length),
+      },
+      body: payloadStr,
+    });
     console.info(`Anonymous metric response: ${response.statusText} (${response.status})`);
 
     result.Message = "Anonymous data was sent successfully.";
@@ -119,7 +120,7 @@ async function sendCloudFormationResponse(
   event: CustomResourceRequest,
   logStreamName: string,
   response: CompletionStatus
-): Promise<AxiosResponse> {
+): Promise<Response> {
   const responseBody = JSON.stringify({
     Status: response.Status,
     Reason: `See the details in CloudWatch Log Stream: ${logStreamName}`,
@@ -130,12 +131,12 @@ async function sendCloudFormationResponse(
     Data: response.Data,
   });
 
-  const config: RawAxiosRequestConfig = {
+  return fetch(event.ResponseURL, {
+    method: "PUT",
     headers: {
       "Content-Type": "",
-      "Content-Length": responseBody.length,
+      "Content-Length": String(responseBody.length),
     },
-  };
-
-  return axios.put(event.ResponseURL, responseBody, config);
+    body: responseBody,
+  });
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from "@jest/globals";
-import { mockContext, mockAxios } from "./mock";
+import { mockContext, mockFetch } from "./mock";
 import { CustomResourceActions, CustomResourceRequestTypes, CustomResourceRequest } from "../lib";
 import { handler } from "../index";
 
@@ -26,7 +26,7 @@ describe("CREATE_UUID", () => {
   });
 
   it("Should create a UUID on CREATE", async () => {
-    mockAxios.put.mockResolvedValue({ status: 200 });
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
 
     const response = await handler(event, mockContext);
 
@@ -36,7 +36,7 @@ describe("CREATE_UUID", () => {
   });
 
   it("Should not create a UUID on UPDATE", async () => {
-    mockAxios.put.mockResolvedValue({ status: 200 });
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
     const updateEvent = { ...event, RequestType: CustomResourceRequestTypes.UPDATE };
 
     const response = await handler(updateEvent, mockContext);
@@ -48,7 +48,7 @@ describe("CREATE_UUID", () => {
   });
 
   it("Should not create a UUID on DELETE", async () => {
-    mockAxios.put.mockResolvedValue({ status: 200 });
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
     const deleteEvent = { ...event, RequestType: CustomResourceRequestTypes.DELETE };
 
     const response = await handler(deleteEvent, mockContext);

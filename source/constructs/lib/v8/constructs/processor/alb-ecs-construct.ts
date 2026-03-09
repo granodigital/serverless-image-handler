@@ -1,14 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Duration, Fn, RemovalPolicy, Token } from "aws-cdk-lib";
+import { Duration, Fn, Token } from "aws-cdk-lib";
 import * as appscaling from "aws-cdk-lib/aws-applicationautoscaling";
 import { ISecurityGroup, IVpc } from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import { IRole } from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
-import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { addCfnGuardSuppressRules } from "../../../../utils/utils";
 import {
@@ -21,7 +20,6 @@ import {
   HEALTH_CHECK_PATH,
   HEALTH_CHECK_TIMEOUT_SECONDS,
   HEALTH_CHECK_UNHEALTHY_THRESHOLD_COUNT,
-  LOG_RETENTION_DAYS,
   SCALE_IN_COOLDOWN_MINUTES,
 } from "../common";
 
@@ -51,6 +49,7 @@ export interface AlbEcsConstructProps {
   taskRole: IRole;
   taskExecutionRole: IRole;
   stackName: string;
+  logGroup: logs.LogGroup;
   configTableArn?: string;
   originOverrideHeader?: string;
 }
@@ -71,7 +70,6 @@ export class AlbEcsConstruct extends Construct {
   public readonly service: ecs.FargateService;
   public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
   public readonly targetGroup: elbv2.ApplicationTargetGroup;
-  public readonly logGroup: logs.LogGroup;
   private readonly customHeaderName = "X-Origin-Verify";
   private readonly customHeaderValue = "CloudFrontOrigin";
 
@@ -93,10 +91,10 @@ export class AlbEcsConstruct extends Construct {
       executionRole: props.taskExecutionRole,
     });
 
-    this.logGroup = this.addContainerToTaskDefinition(
+    this.addContainerToTaskDefinition(
+      props.logGroup,
       this.taskDefinition,
       props.imageUri,
-      props.ecsConfig,
       props.configTableArn,
       props.originOverrideHeader
     );
@@ -160,29 +158,15 @@ export class AlbEcsConstruct extends Construct {
   }
 
   public addContainerToTaskDefinition(
+    logGroup: logs.LogGroup,
     taskDefinition: ecs.TaskDefinition,
     imageUri: string,
-    ecsConfig: EcsConfig,
     configTableArn?: string,
     originOverrideHeader?: string
-  ): logs.LogGroup {
-    const logGroup = new logs.LogGroup(this, "ContainerLogGroup", {
-      retention: LOG_RETENTION_DAYS,
-      removalPolicy: RemovalPolicy.RETAIN,
-    });
-
-    // Add CFN Guard suppression for KMS key requirement
-    addCfnGuardSuppressRules(logGroup, [
-      {
-        id: "CLOUDWATCH_LOG_GROUP_ENCRYPTED",
-        reason:
-          "Using AWS managed encryption for CloudWatch Logs. No customer data is stored, so customer-managed KMS keys are not required to avoid unnecessary costs.",
-      },
-    ]);
-
+  ): void {
     const environment: { [key: string]: string } = {
-      SOLUTION_ID: "SO0023",
-      SOLUTION_VERSION: "v8.0.2",
+      SOLUTION_ID: process.env.SOLUTION_ID ?? taskDefinition.node.tryGetContext("solutionId"),
+      SOLUTION_VERSION: process.env.VERSION ?? taskDefinition.node.tryGetContext("solutionVersion"),
     };
 
     if (configTableArn) {
@@ -193,6 +177,9 @@ export class AlbEcsConstruct extends Construct {
     if (originOverrideHeader) {
       environment.CUSTOM_ORIGIN_HEADER = originOverrideHeader;
     }
+
+    // Default to 1 billion pixels to support large GIFs (e.g., 1920x1080x300 frames)
+    environment.LIMIT_INPUT_PIXELS = "1000000000";
 
     const container = taskDefinition.addContainer("ImageProcessingContainer", {
       image: ecs.ContainerImage.fromRegistry(imageUri),
@@ -207,8 +194,6 @@ export class AlbEcsConstruct extends Construct {
       containerPort: CONTAINER_PORT,
       protocol: ecs.Protocol.TCP,
     });
-
-    return logGroup;
   }
 
   public createListener(
@@ -249,7 +234,7 @@ export class AlbEcsConstruct extends Construct {
 
     scalableTarget.scaleOnMetric("CpuScaling", {
       metric: service.metricCpuUtilization({
-        period: Duration.minutes(1)
+        period: Duration.minutes(1),
       }),
       scalingSteps: [
         { upper: CPU_TARGET_UTILIZATION_SCALE_IN, change: scaleInAmount },

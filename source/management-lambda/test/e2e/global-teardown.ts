@@ -2,22 +2,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CognitoClient } from "./cognito-client";
+import { DynamoDBClient } from "./dynamodb-client";
 
 const globalTeardown = async (): Promise<void> => {
   console.log(" 💣 Running global teardown...");
-  console.log(" 🧹 Deleting test cognito app client...");
+  console.log(" 🧹 Clearing table and deleting test cognito app client");
 
-  if (!process.env.USER_POOL_ID || !process.env.TEST_CLIENT_ID) {
+  if (
+    !process.env.USER_POOL_ID ||
+    !process.env.TEST_CLIENT_ID ||
+    !process.env.CURRENT_STACK_REGION ||
+    !process.env.TABLE_NAME
+  ) {
     throw new Error("environment variable is not set");
   }
 
-  const region = process.env.AWS_REGION || "us-east-1";
+  await new DynamoDBClient(process.env.CURRENT_STACK_REGION, process.env.TABLE_NAME).clearTable();
+
+  const region = process.env.CURRENT_STACK_REGION;
   const cognitoClient = new CognitoClient(region);
   await cognitoClient.deleteCognitoAppClient({
-    userPoolId: process.env.USER_POOL_ID!,
-    clientId: process.env.TEST_CLIENT_ID!,
+    userPoolId: process.env.USER_POOL_ID,
+    clientId: process.env.TEST_CLIENT_ID,
   });
-  console.log(" 🏁 Global teardown complete.");
+  console.log(" 🏁 Global teardown complete");
 };
 
 export default globalTeardown;

@@ -3,15 +3,13 @@
 
 import { ConnectionError } from '../errors/connection.error';
 import { ImageProcessingRequest } from '../../../types/image-processing-request';
-import axios from 'axios';
-import https from 'https';
 import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getOptions } from '../../../utils/get-options';
 import { S3UrlHelper } from '../../../utils/s3-url-helper';
 import { UrlValidator } from '../../../utils/url-validator';
 
 export class ConnectionManager {
-  private readonly httpsAgent = new https.Agent({ rejectUnauthorized: true });
+  private static readonly TIMEOUT_MS = 5000;
   private readonly s3Client = new S3Client(getOptions());
 
   private validateContentType(contentType: string | undefined): void {
@@ -63,49 +61,54 @@ export class ConnectionManager {
   }
 
   private async validateHttpOrigin(url: string, imageRequest: ImageProcessingRequest): Promise<void> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ConnectionManager.TIMEOUT_MS);
+
     try {
-      const response = await axios.head(url, {
-        timeout: 5000,
-        maxRedirects: 0,
-        httpsAgent: this.httpsAgent,
+      const response = await fetch(url, {
+        method: 'HEAD',
+        redirect: 'error',
+        signal: controller.signal,
         headers: imageRequest.clientHeaders || {}
       });
+      clearTimeout(timeoutId);
 
-      const contentType = response.headers['content-type'];
+      if (!response.ok) {
+        const status = response.status;
+        if (status === 404) {
+          throw new ConnectionError('Resource not found', `Resource not found at ${url}`, 404, 'RESOURCE_NOT_FOUND');
+        }
+        if (status === 403 || status === 401) {
+          throw new ConnectionError('Access denied', `Access denied for ${url}`, status, 'ACCESS_DENIED');
+        }
+        if (status >= 500) {
+          throw new ConnectionError('Origin server error', `Origin server error (${status}) for ${url}`, 502, 'BAD_GATEWAY');
+        }
+        throw new ConnectionError('Origin validation failed', `Origin returned status ${status} for ${url}`, 502, 'BAD_GATEWAY');
+      }
+
+      const contentType = response.headers.get('content-type') ?? undefined;
       this.validateContentType(contentType);
       if (imageRequest) {
         imageRequest.sourceImageContentType = contentType;
       }
     } catch (error) {
-      if (error instanceof ConnectionError) {
-        throw error;
+      clearTimeout(timeoutId);
+      if (error instanceof ConnectionError) throw error;
+
+      const err = error as Error & { cause?: { code?: string } };
+      const code = err.cause?.code;
+
+      if (err.name === 'AbortError') {
+        throw new ConnectionError('Origin timeout', `Origin validation timeout after ${ConnectionManager.TIMEOUT_MS}ms for URL: ${url}`, 408, 'REQUEST_TIMEOUT');
       }
-      if (axios.isAxiosError(error)) {
-        // HTTP response errors (4xx, 5xx)
-        if (error.response) {
-          const status = error.response.status;
-          if (status === 404) {
-            throw new ConnectionError('Resource not found', `Resource not found at ${url}`, 404, 'RESOURCE_NOT_FOUND');
-          }
-          if (status === 403 || status === 401) {
-            throw new ConnectionError('Access denied', `Access denied for ${url}`, status, 'ACCESS_DENIED');
-          }
-          if (status >= 500) {
-            throw new ConnectionError('Origin server error', `Origin server error (${status}) for ${url}`, 502, 'BAD_GATEWAY');
-          }
-        }        
-        // Network-level errors
-        if (error.code === 'ECONNABORTED') {
-          throw new ConnectionError('Origin timeout', `Origin validation timeout after 5000ms for URL: ${url}`, 408, 'REQUEST_TIMEOUT');
-        }
-        if (error.code === 'ENOTFOUND') {
-          throw new ConnectionError('Unable to resolve host', `Unable to resolve host for ${url}`, 404, 'HOST_NOT_FOUND');
-        }
-        if (error.code === 'CERT_UNTRUSTED' || error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-          throw new ConnectionError('TLS certificate error', `TLS certificate validation failed for ${url}: ${error.message}`, 403, 'ACCESS_DENIED');
-        }
+      if (code === 'ENOTFOUND') {
+        throw new ConnectionError('Unable to resolve host', `Unable to resolve host for ${url}`, 404, 'HOST_NOT_FOUND');
       }
-      throw new ConnectionError('Origin validation failed', `Origin validation failed for ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`, 502, 'BAD_GATEWAY');
+      if (code === 'CERT_HAS_EXPIRED' || code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || code === 'DEPTH_ZERO_SELF_SIGNED_CERT') {
+        throw new ConnectionError('TLS certificate error', `TLS certificate validation failed for ${url}: ${err.message}`, 403, 'ACCESS_DENIED');
+      }
+      throw new ConnectionError('Origin validation failed', `Origin validation failed for ${url}: ${err.message || 'Unknown error'}`, 502, 'BAD_GATEWAY');
     }
   }
 

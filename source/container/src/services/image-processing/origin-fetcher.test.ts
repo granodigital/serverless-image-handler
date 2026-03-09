@@ -47,59 +47,59 @@ describe('OriginFetcher', () => {
   describe('validateImageMagicNumbers', () => {
     it('should reject files under 4 bytes', () => {
       const smallBuffer = Buffer.from([0xFF, 0xD8]);
-      expect(() => fetcher['validateImageMagicNumbers'](smallBuffer)).toThrow('File too small to be a valid image');
+      expect(() => fetcher['validateImageMagicNumbers'](smallBuffer, undefined, 'https://example.com/test.jpg')).toThrow('Invalid image file');
     });
 
     it('should accept valid JPEG with magic numbers', () => {
       const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
-      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, undefined, 'https://example.com/test.jpg')).not.toThrow();
     });
 
     it('should accept valid PNG with magic numbers', () => {
       const pngBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
-      expect(() => fetcher['validateImageMagicNumbers'](pngBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](pngBuffer, undefined, 'https://example.com/test.png')).not.toThrow();
     });
 
     it('should accept valid GIF with magic numbers', () => {
       const gifBuffer = Buffer.from([0x47, 0x49, 0x46, 0x38]);
-      expect(() => fetcher['validateImageMagicNumbers'](gifBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](gifBuffer, undefined, 'https://example.com/test.gif')).not.toThrow();
     });
 
     it('should accept valid WebP with magic numbers', () => {
       const webpBuffer = Buffer.from([0x52, 0x49, 0x46, 0x46]);
-      expect(() => fetcher['validateImageMagicNumbers'](webpBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](webpBuffer, undefined, 'https://example.com/test.webp')).not.toThrow();
     });
 
     it('should accept images without magic numbers', () => {
       const unknownBuffer = Buffer.from([0x00, 0x01, 0x02, 0x03]);
-      expect(() => fetcher['validateImageMagicNumbers'](unknownBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](unknownBuffer, undefined, 'https://example.com/test.raw')).not.toThrow();
     });
 
     it('should validate content-type matches detected format', () => {
       const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
-      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, 'image/jpeg')).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, 'image/jpeg', 'https://example.com/test.jpg')).not.toThrow();
     });
 
     it('should reject content-type mismatch', () => {
       const pngBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
-      expect(() => fetcher['validateImageMagicNumbers'](pngBuffer, 'image/jpeg'))
-        .toThrow('Content-Type image/jpeg does not match detected format png');
+      expect(() => fetcher['validateImageMagicNumbers'](pngBuffer, 'image/jpeg', 'https://example.com/test.png'))
+        .toThrow('Content-Type mismatch');
     });
 
     it('should allow unknown content-type with detected format', () => {
       const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
-      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, 'image/unknown')).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, 'image/unknown', 'https://example.com/test.jpg')).not.toThrow();
     });
 
     it('should allow no content-type with detected format', () => {
       const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
-      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer)).not.toThrow();
+      expect(() => fetcher['validateImageMagicNumbers'](jpegBuffer, undefined, 'https://example.com/test.jpg')).not.toThrow();
     });
 
     it('should reject malformed magic numbers with content-type', () => {
       const malformedPngBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x46]); // Should be 0x47, not 0x46
-      expect(() => fetcher['validateImageMagicNumbers'](malformedPngBuffer, 'image/png'))
-        .toThrow('Invalid or corrupted png file');
+      expect(() => fetcher['validateImageMagicNumbers'](malformedPngBuffer, 'image/png', 'https://example.com/test.png'))
+        .toThrow('Invalid image file');
     });
   });
 
@@ -153,7 +153,7 @@ describe('OriginFetcher', () => {
 
     it('should reject HTTP protocol', async () => {
       await expect(fetcher.fetchImage('http://example.com/image.jpg'))
-        .rejects.toThrow('HTTP protocol not allowed');
+        .rejects.toThrow('Invalid URL');
     });
   });
 });

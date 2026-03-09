@@ -4,14 +4,11 @@
 import { jest } from "@jest/globals";
 import { LambdaContext } from "../lib";
 
-// Mock axios
-export const mockAxios = {
-  put: jest.fn<any>().mockImplementation(() => Promise.resolve()),
-  post: jest.fn<any>().mockImplementation(() => Promise.resolve()),
-};
-jest.mock("axios", () => ({
-  ...mockAxios,
-}));
+// Mock fetch
+export const mockFetch = jest.fn<any>().mockImplementation(() =>
+  Promise.resolve({ ok: true, status: 200, statusText: "OK" })
+);
+global.fetch = mockFetch;
 
 // Mock timestamp
 const mockTimeStamp = new Date();

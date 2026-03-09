@@ -4,13 +4,15 @@
 export class ImageProcessingError extends Error {
   public readonly statusCode: number;
   public readonly errorType: string;
+  public readonly verboseDescription: string;
   public readonly originalError?: Error;
 
-  constructor(statusCode: number, errorType: string, message: string, originalError?: Error) {
+  constructor(statusCode: number, errorType: string, message: string, verboseDescription?: string, originalError?: Error) {
     super(message);
     this.name = 'ImageProcessingError';
     this.statusCode = statusCode;
     this.errorType = errorType;
+    this.verboseDescription = verboseDescription || message;
     this.originalError = originalError;
   }
 }

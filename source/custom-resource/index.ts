@@ -23,10 +23,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { CloudFrontClient, GetDistributionCommand } from "@aws-sdk/client-cloudfront";
-import axios, { RawAxiosRequestConfig, AxiosResponse } from "axios";
-import { createHash } from "crypto";
+
+import { createHash, randomUUID } from "crypto";
 import moment from "moment";
-import { v4 } from "uuid";
 
 import { getOptions } from "../solution-utils/get-options";
 import { isNullOrWhiteSpace } from "../solution-utils/helpers";
@@ -255,7 +254,7 @@ async function sendCloudFormationResponse(
   event: CustomResourceRequest,
   logStreamName: string,
   response: CompletionStatus
-): Promise<AxiosResponse> {
+): Promise<Response> {
   const responseBody = JSON.stringify({
     Status: response.Status,
     Reason: `See the details in CloudWatch Log Stream: ${logStreamName}`,
@@ -266,14 +265,14 @@ async function sendCloudFormationResponse(
     Data: response.Data,
   });
 
-  const config: RawAxiosRequestConfig = {
+  return fetch(event.ResponseURL, {
+    method: "PUT",
     headers: {
       "Content-Type": "",
-      "Content-Length": responseBody.length,
+      "Content-Length": String(responseBody.length),
     },
-  };
-
-  return axios.put(event.ResponseURL, responseBody, config);
+    body: responseBody,
+  });
 }
 
 /**
@@ -323,15 +322,15 @@ async function sendAnonymousMetric(
 
     const payloadStr = JSON.stringify(payload);
 
-    const config: RawAxiosRequestConfig = {
-      headers: {
-        "content-type": "application/json",
-        "content-length": payloadStr.length,
-      },
-    };
-
     console.info("Sending anonymous metric", payloadStr);
-    const response = await axios.post(METRICS_ENDPOINT, payloadStr, config);
+    const response = await fetch(METRICS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(payloadStr.length),
+      },
+      body: payloadStr,
+    });
     console.info(`Anonymous metric response: ${response.statusText} (${response.status})`);
 
     result.Message = "Anonymous data was sent successfully.";
@@ -405,7 +404,7 @@ async function putConfigFile(
  * @returns Generated UUID.
  */
 async function generateUUID(): Promise<{ UUID: string }> {
-  return Promise.resolve({ UUID: v4() });
+  return Promise.resolve({ UUID: randomUUID() });
 }
 
 /**

@@ -13,7 +13,7 @@ const s3Client = new S3Client();
 const rekognitionClient = new RekognitionClient();
 
 describe("rotate", () => {
-  it("Should pass if rotate is null and return image without EXIF and ICC", async () => {
+  it("Should pass if rotate is null and still preserve metadata (rotate:null no longer strips metadata)", async () => {
     // Arrange
     const originalImage = fs.readFileSync("./test/image/1x1.jpg");
     const request: ImageRequestInfo = {
@@ -28,11 +28,10 @@ describe("rotate", () => {
     const imageHandler = new ImageHandler(s3Client, rekognitionClient);
     const result = await imageHandler.process(request);
 
-    // Assert
+    // Assert - rotate:null should NOT strip metadata anymore
     const metadata = await sharp(result).metadata();
-    expect(metadata).not.toHaveProperty("exif");
-    expect(metadata).not.toHaveProperty("icc");
-    expect(metadata).not.toHaveProperty("orientation");
+    expect(metadata).toHaveProperty("exif");
+    expect(metadata).toHaveProperty("icc");
   });
 
   it("Should pass if the original image has orientation", async () => {

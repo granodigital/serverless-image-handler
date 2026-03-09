@@ -40,6 +40,9 @@ export class EditApplicator {
             case 'sharpen':
               this.applySharpen(image, value)
               break;
+            case 'rotate':
+              image.rotate(value === 'null' ? null : value);
+              break;
             case 'toFormat':
             case 'quality':
             case 'resize':

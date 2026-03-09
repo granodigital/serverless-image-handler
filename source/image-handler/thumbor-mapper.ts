@@ -359,8 +359,10 @@ export class ThumborMapper {
         break;
       }
       case "strip_exif":
+        currentEdits.stripExif = true;
+        break;
       case "strip_icc": {
-        currentEdits.rotate = null;
+        currentEdits.stripIcc = true;
         break;
       }
       case "upscale": {

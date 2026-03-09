@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { mockAxios, mockContext, consoleInfoSpy, mockISOTimeStamp, consoleErrorSpy } from "./mock";
+import { mockFetch, mockContext, consoleInfoSpy, mockISOTimeStamp, consoleErrorSpy } from "./mock";
 import {
   CustomResourceActions,
   CustomResourceRequestTypes,
@@ -43,7 +43,7 @@ describe("SEND_ANONYMOUS_METRIC", () => {
   });
 
   it("Should return success when sending anonymous metric succeeds", async () => {
-    mockAxios.post.mockResolvedValue({ status: 200, statusText: "OK" });
+    mockFetch.mockResolvedValue({ ok: true, status: 200, statusText: "OK" });
 
     const result = await handler(event, mockContext);
 
@@ -90,7 +90,7 @@ describe("SEND_ANONYMOUS_METRIC", () => {
   });
 
   it("Should return success when sending anonymous usage fails", async () => {
-    mockAxios.post.mockResolvedValue({ status: 500, statusText: "FAILS" });
+    mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: "FAILS" });
 
     const result = await handler(event, mockContext);
 
@@ -138,7 +138,8 @@ describe("SEND_ANONYMOUS_METRIC", () => {
   });
 
   it("Should return success when unable to send anonymous usage", async () => {
-    mockAxios.post.mockRejectedValue({ status: 500, statusText: "FAILS" });
+    mockFetch.mockRejectedValueOnce({ status: 500, statusText: "FAILS" })
+      .mockResolvedValue({ ok: true, status: 200, statusText: "OK" });
 
     const result = await handler(event, mockContext);
 
@@ -162,7 +163,7 @@ describe("SEND_ANONYMOUS_METRIC", () => {
   });
 
   it("Should return success when sending anonymous metric without source buckets", async () => {
-    mockAxios.post.mockResolvedValue({ status: 200, statusText: "OK" });
+    mockFetch.mockResolvedValue({ ok: true, status: 200, statusText: "OK" });
     const eventWithoutBuckets = { ...event };
     (<SendMetricsRequestProperties>eventWithoutBuckets.ResourceProperties).SourceBuckets = null;
 

@@ -12,7 +12,7 @@ import fs from "fs";
 const s3Client = new S3Client();
 const rekognitionClient = new RekognitionClient();
 const image = fs.readFileSync("./test/image/25x15.png");
-const withMetatdataSpy = jest.spyOn(sharp.prototype, "withMetadata");
+const keepMetadataSpy = jest.spyOn(sharp.prototype, "keepMetadata");
 
 describe("standard", () => {
   it("Should pass if a series of standard edits are provided to the function", async () => {
@@ -62,64 +62,52 @@ describe("instantiateSharpImage", () => {
     jest.clearAllMocks();
   });
 
-  it("Should not include metadata if the rotation is null", async () => {
-    // Arrange
-    const edits = {
-      rotate: null,
-    };
-    const options = { faiOnError: false };
-    const imageHandler = new ImageHandler(s3Client, rekognitionClient);
-
-    // Act
-    await imageHandler["instantiateSharpImage"](image, edits, options);
-
-    // Assert
-    expect(withMetatdataSpy).not.toHaveBeenCalled();
-  });
-
-  it("Should include metadata and not define orientation if the rotation is not null and orientation is not defined", async () => {
-    // Arrange
-    const edits = {
-      rotate: undefined,
-    };
-    const options = { faiOnError: false };
-    const imageHandler = new ImageHandler(s3Client, rekognitionClient);
-
-    // Act
-    await imageHandler["instantiateSharpImage"](image, edits, options);
-
-    // Assert
-    expect(withMetatdataSpy).toHaveBeenCalled();
-    expect(withMetatdataSpy).not.toHaveBeenCalledWith(expect.objectContaining({ orientation: expect.anything }));
-  });
-
-  it("Should include orientation metadata if the rotation is defined in the metadata", async () => {
-    // Arrange
-    const edits = {
-      rotate: undefined,
-    };
-    const options = { faiOnError: false };
-    const modifiedImage = await sharp(image).withMetadata({ orientation: 1 }).toBuffer();
-    const imageHandler = new ImageHandler(s3Client, rekognitionClient);
-
-    // Act
-    await imageHandler["instantiateSharpImage"](modifiedImage, edits, options);
-
-    // Assert
-    expect(withMetatdataSpy).toHaveBeenCalledWith({ orientation: 1 });
-  });
-
-  it("Should include image metadata when there are no edits in the request", async () => {
+  it("Should keep metadata by default", async () => {
     // Arrange
     const edits = {};
-    const options = { faiOnError: false };
+    const options = { failOnError: false };
     const imageHandler = new ImageHandler(s3Client, rekognitionClient);
 
     // Act
     await imageHandler["instantiateSharpImage"](image, edits, options);
 
     // Assert
-    expect(withMetatdataSpy).toHaveBeenCalled();
-    expect(withMetatdataSpy).toHaveBeenCalledWith();
+    expect(keepMetadataSpy).toHaveBeenCalled();
+  });
+
+  it("Should strip EXIF when stripExif is true", async () => {
+    // Arrange
+    const originalImage = fs.readFileSync("./test/image/1x1.jpg");
+    const edits = { stripExif: true };
+    const options = { failOnError: false };
+    const imageHandler = new ImageHandler(s3Client, rekognitionClient);
+
+    // Act
+    const result = await imageHandler["instantiateSharpImage"](originalImage, edits, options);
+    const outputBuffer = await result.toBuffer();
+    const metadata = await sharp(outputBuffer).metadata();
+
+    // Assert - stripExif should be removed from edits after processing
+    expect(edits.stripExif).toBeUndefined();
+    // ICC should be preserved
+    expect(metadata).toHaveProperty("icc");
+  });
+
+  it("Should strip ICC when stripIcc is true", async () => {
+    // Arrange
+    const originalImage = fs.readFileSync("./test/image/1x1.jpg");
+    const edits = { stripIcc: true };
+    const options = { failOnError: false };
+    const imageHandler = new ImageHandler(s3Client, rekognitionClient);
+
+    // Act
+    const result = await imageHandler["instantiateSharpImage"](originalImage, edits, options);
+    const outputBuffer = await result.toBuffer();
+    const metadata = await sharp(outputBuffer).metadata();
+
+    // Assert - stripIcc should be removed from edits after processing
+    expect(edits.stripIcc).toBeUndefined();
+    // EXIF should be preserved
+    expect(metadata).toHaveProperty("exif");
   });
 });

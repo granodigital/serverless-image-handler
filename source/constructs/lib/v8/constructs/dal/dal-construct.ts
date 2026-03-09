@@ -24,6 +24,7 @@ import { SingleTableConstruct } from "./single-table-construct";
 
 interface DalConstructProps {
   userPool: UserPool;
+  corsOrigin: string;
 }
 
 export class DalConstruct extends Construct {
@@ -40,6 +41,7 @@ export class DalConstruct extends Construct {
       entry: path.join(__dirname, "../../../../../management-lambda/index.ts"),
       environment: {
         CONFIG_TABLE_NAME: this.table.tableName,
+        CORS_ORIGIN: props.corsOrigin,
         POWERTOOLS_LOGGER_LOG_LEVEL: "INFO",
         POWERTOOLS_LOGGER_LOG_EVENT: "false",
       },
@@ -104,9 +106,9 @@ export class DalConstruct extends Construct {
         tracingEnabled: true,
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: ["*"],
+        allowOrigins: [props.corsOrigin],
         allowMethods: ["*"],
-        allowCredentials: false,
+        allowCredentials: true,
         allowHeaders: [
           "Content-Type",
           "X-Amz-Date",
@@ -131,7 +133,7 @@ export class DalConstruct extends Construct {
     ]);
 
     const responseHeaders = {
-      "gatewayresponse.header.Access-Control-Allow-Origin": "'*'",
+      "gatewayresponse.header.Access-Control-Allow-Origin": `'${props.corsOrigin}'`,
       "gatewayresponse.header.Access-Control-Allow-Headers":
         "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "gatewayresponse.header.Access-Control-Allow-Methods": "'GET,OPTIONS,POST,PUT,DELETE'",

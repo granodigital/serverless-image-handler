@@ -39,14 +39,27 @@ export class ImageHandler {
    */
   // eslint-disable-next-line @typescript-eslint/ban-types
   private async instantiateSharpImage(originalImage: Buffer, edits: ImageEdits, options: Object): Promise<sharp.Sharp> {
-    let image: sharp.Sharp = null;
     try {
-      if (edits && edits.rotate !== undefined && edits.rotate === null) {
-        image = sharp(originalImage, options); // for strip metadata case like strip_exif()
-      } else {
-        await sharp(originalImage, options).metadata(); // validation
-        image = sharp(originalImage, options).withMetadata();
+      await sharp(originalImage, options).metadata(); // validation
+      // Default behavior: keep all metadata and ICC profile
+      let image = sharp(originalImage, options).keepIccProfile().keepMetadata();
+
+      if (edits?.stripExif === true) {
+        // Removes all EXIF by inserting minimal EXIF tag. Leaves ICC untouched.
+        image.keepIccProfile().withExif({
+          IFD0: {
+            Software: 'Dynamic Image Transformation for Amazon CloudFront'
+          }
+        });
+        delete edits.stripExif;
       }
+
+      if (edits?.stripIcc === true) {
+        // Strips ICC by defaulting to sRGB color space, while keeping EXIF untouched.
+        image.keepExif().withIccProfile('srgb');
+        delete edits.stripIcc;
+      }
+
       return image;
     } catch (error) {
       this.handleError(
@@ -188,18 +201,6 @@ export class ImageHandler {
           break;
         }
         case "animated": {
-          break;
-        }
-        case "rotate": {
-          // Handle rotate specifically to support autoOrient when undefined
-          if (edits.rotate === undefined) {
-            // When rotate is undefined (filters:rotate() without parameters), call autoOrient()
-            // This aligns with Sharp's behavior where rotate() without parameters auto-orients based on EXIF
-            originalImage.autoOrient();
-          } else if (edits.rotate !== null) {
-            // When rotate has a value (including 0), apply the rotation
-            originalImage.rotate(edits.rotate);
-          }
           break;
         }
         default: {

@@ -15,12 +15,10 @@ describe("ImageProcessingStack", () => {
   let template: Template;
 
   beforeEach(() => {
-    app = new App({
-      context: {
-        solutionId: "SO0023",
-        solutionVersion: "v8.0.0",
-      },
-    });
+    process.env.SOLUTION_ID = "SO0023";
+    process.env.VERSION = "v8.0.3";
+
+    app = new App();
 
     parentStack = new Stack(app, "TestParentStack");
 
@@ -31,6 +29,7 @@ describe("ImageProcessingStack", () => {
 
     stack = new ImageProcessingStack(parentStack, "TestImageProcessingStack", {
       configTable,
+      deploymentSize: "small",
     });
 
     template = Template.fromStack(stack);
@@ -52,7 +51,7 @@ describe("ImageProcessingStack", () => {
 
     functionNames.forEach((functionName) => {
       const runtime = lambdaFunctions[functionName].Properties.Runtime;
-        expect(runtime).toBe("nodejs22.x");
+      expect(runtime).toBe("nodejs22.x");
     });
   });
 });

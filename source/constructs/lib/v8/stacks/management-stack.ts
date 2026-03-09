@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Aws, CfnOutput, CfnParameter, Stack, StackProps, CfnResource } from "aws-cdk-lib";
+import { Aws, CfnOutput, CfnParameter, Stack, StackProps, CfnResource, CfnCondition, Fn } from "aws-cdk-lib";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import { Construct } from "constructs";
 import * as path from "path";
@@ -51,6 +51,14 @@ export class ManagementStack extends Stack {
       allowedPattern: "^$|^[a-zA-Z0-9-]+$",
     });
 
+    const corsOriginParameter = new CfnParameter(this, "CorsOriginParameter", {
+      type: "String",
+      description: `If you would like to specify an origin to use for CORS, please specify an origin value here. We recommend specifying an origin (i.e. https://example.domain) to restrict cross-site access to your API. Leave empty to default to wildcard (*).`,
+      default: "",
+      constraintDescription: "Must be a valid HTTPS URL, or empty to default to (*)",
+      allowedPattern: "^$|^\\*$|^https://[a-zA-Z0-9.-]+$"
+    });
+
     const webConstruct: WebDistributionConstruct = new WebDistributionConstruct(this, "WebDistribution");
 
     const authConstruct = new AuthConstruct(this, "Auth", {
@@ -61,6 +69,7 @@ export class ManagementStack extends Stack {
 
     const dalConstruct = new DalConstruct(this, "DataAccessLayer", {
       userPool: authConstruct.userPool,
+      corsOrigin: `https://${webConstruct.distribution.domainName}`,
     });
 
     new CSPUpdaterConstruct(this, "CSPUpdater", {
@@ -136,10 +145,9 @@ export class ManagementStack extends Stack {
       configTable: dalConstruct.table,
       uuid: metricsConstruct.uuid,
       configTableArn: dalConstruct.table.tableArn,
-      parameters: {
-        DeploymentSize: deploymentSize.valueAsString,
-        OriginOverrideHeader: originOverrideHeader.valueAsString,
-      },
+      deploymentSize: deploymentSize.valueAsString,
+      originOverrideHeader: originOverrideHeader.valueAsString,
+      corsOrigin: corsOriginParameter.valueAsString
     });
 
     new CfnOutput(this, "WebPortalUrl", {

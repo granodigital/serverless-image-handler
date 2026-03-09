@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [8.0.3] - 2026-03-02
+
+### Added
+
+- `CorsOriginParameter` to restrict image processing endpoint to specific origin, default to `*` [#624](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/issues/624)
+- added `no-store`, `no-cache` cache control headers on management api
+
+### Changed
+
+- restrict management api to admin-ui cloudfront origin, preventing arbitrary origins being trusted on api
+- fix `stripExif`, `stripIcc` transforms and `autoOrient` logic [#623](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/issues/623)
+- remove default Sharp image size limit and support the limit as environment variable on container [#632](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/issues/632)
+- move to built-in `node:crypto`
+- added `verboseDescription` to log image processing errors at a different verbosity than the HTTP response
+- narrowed resource for logs actions to specific container log group
+- fix e2e test setup in `management-lambda` package to clear ddb table instead of delete/recreate
+
+### Security
+
+- Bump `systeminformation` to mitigate [CVE-2026-26318](https://avd.aquasec.com/nvd/cve-2026-26318) and [CVE-2026-26280](https://avd.aquasec.com/nvd/cve-2026-26280)
+- Bump `aws-cdk-lib` to mitigate several CVE's related to `minimatch` and `ajv`: [CVE-2026-26996](https://avd.aquasec.com/nvd/2026/cve-2026-26996/), [CVE-2026-27903](https://avd.aquasec.com/nvd/2026/cve-2026-27903/), [CVE-2026-27904](https://avd.aquasec.com/nvd/2026/cve-2026-27904/), [CVE-2025-69873](https://avd.aquasec.com/nvd/cve-2025-69873)
+- Bump several `aws-sdk/*` packages to mitigate CVE's related to `fast-xml-parser`: [CVE-2026-25896](https://nvd.nist.gov/vuln/detail/CVE-2026-25896) and [CVE-2026-26278](https://nvd.nist.gov/vuln/detail/CVE-2026-26278)
+
 ## [8.0.2] - 2026-01-07
 
 ### Security

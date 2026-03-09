@@ -26,6 +26,7 @@ const MAX_HEADER_VALUE_LENGTH = 1024;
 router.get('*', async (req: Request, res: Response) => {
   const startTime = Date.now();
   let imageRequest: ImageProcessingRequest | undefined;
+  const { CORS_ORIGIN } = process.env;
   
   try {
     // Initialize shared request object
@@ -59,6 +60,9 @@ router.get('*', async (req: Request, res: Response) => {
 
     // Send processed image response
     res.set(imageRequest.response.headers);
+    if (CORS_ORIGIN) {
+      res.set('Access-Control-Allow-Origin', CORS_ORIGIN);
+    }
     res.type(imageRequest.response.contentType || 'image/jpeg');
     res.send(processedImage);
 
@@ -95,7 +99,7 @@ router.get('*', async (req: Request, res: Response) => {
   }
 });
 
-function handleError(error: unknown, requestId: string, startTime: number) {
+export function handleError(error: unknown, requestId: string, startTime: number) {
   let statusCode = 500;
   let errorType = 'INTERNAL_ERROR';
   let clientMessage = 'An unexpected error occurred while processing your request';
@@ -137,6 +141,7 @@ function handleError(error: unknown, requestId: string, startTime: number) {
         statusCode = (error as ImageProcessingError).statusCode;
         errorType = (error as ImageProcessingError).errorType;
         clientMessage = error.message;
+        verboseInfo.verboseDescription = (error as ImageProcessingError).verboseDescription;
         verboseInfo.originalError = (error as ImageProcessingError).originalError?.message;
         verboseInfo.originalStack = (error as ImageProcessingError).originalError?.stack;
         break;
@@ -165,7 +170,7 @@ function handleError(error: unknown, requestId: string, startTime: number) {
 /**
  * Filters and limits client headers to prevent memory exhaustion attacks
  */
-function filterClientHeaders(headers: Record<string, string | string[]>): Record<string, string> {
+export function filterClientHeaders(headers: Record<string, string | string[]>): Record<string, string> {
   const filtered: Record<string, string> = {};
   let headerCount = 0;
   

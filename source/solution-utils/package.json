@@ -15,8 +15,7 @@
     "clean": "rm -rf node_modules/ dist/ coverage/",
     "package": "npm run build && npm prune --production && rsync -avrq ./node_modules ./dist",
     "pretest": "npm run clean && npm install",
-    "test": "jest --coverage --silent",
-    "bump-version": "npm version $(cat ../../VERSION.txt) --allow-same-version"
+    "test": "jest --coverage --silent"
   },
   "devDependencies": {
     "@types/jest": "^29.5.5",
@@ -25,5 +24,9 @@
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "minimatch@3": "3.1.5",
+    "minimatch@5": "5.1.9"
   }
 }

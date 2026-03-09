@@ -118,6 +118,13 @@ exports[`ManagementStack Snapshot Test 1`] = `
       "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
       "Type": "AWS::SSM::Parameter::Value<String>",
     },
+    "CorsOriginParameter": {
+      "AllowedPattern": "^$|^\\*$|^https://[a-zA-Z0-9.-]+$",
+      "ConstraintDescription": "Must be a valid HTTPS URL, or empty to default to (*)",
+      "Default": "",
+      "Description": "If you would like to specify an origin to use for CORS, please specify an origin value here. We recommend specifying an origin (i.e. https://example.domain) to restrict cross-site access to your API. Leave empty to default to wildcard (*).",
+      "Type": "String",
+    },
     "DeploymentSize": {
       "AllowedValues": [
         "small",
@@ -145,7 +152,7 @@ exports[`ManagementStack Snapshot Test 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "c49d356cac773d491c5f7ac148995a1181498a8e289429f8612a7f7e3814f535.zip",
+          "S3Key": "0cfdecad2260a3a84ad0c2d08a77e03c9d25e26c7b52f26b1e1faf97aef92f18.zip",
         },
         "Description": "/opt/awscli/aws",
       },
@@ -567,6 +574,12 @@ Temporary Password: <strong>{####}</strong>
         "Code": {
           "S3Bucket": "Omitted to remove snapshot dependency on bucket",
           "S3Key": "Omitted to remove snapshot dependency on hash",
+        },
+        "Environment": {
+          "Variables": {
+            "SOLUTION_ID": "SO0023",
+            "SOLUTION_VERSION": "v8.0.3",
+          },
         },
         "Handler": "index.handler",
         "LoggingConfig": {
@@ -1105,8 +1118,24 @@ Temporary Password: <strong>{####}</strong>
             "CONFIG_TABLE_NAME": {
               "Ref": "DataAccessLayerConfigTableFC483DD7",
             },
+            "CORS_ORIGIN": {
+              "Fn::Join": [
+                "",
+                [
+                  "https://",
+                  {
+                    "Fn::GetAtt": [
+                      "WebDistributionAdminUIDistributionToS3CloudFrontDistribution6FD651BA",
+                      "DomainName",
+                    ],
+                  },
+                ],
+              ],
+            },
             "POWERTOOLS_LOGGER_LOG_EVENT": "false",
             "POWERTOOLS_LOGGER_LOG_LEVEL": "INFO",
+            "SOLUTION_ID": "SO0023",
+            "SOLUTION_VERSION": "v8.0.3",
           },
         },
         "Handler": "index.handler",
@@ -1180,8 +1209,6 @@ Temporary Password: <strong>{####}</strong>
             {
               "Action": [
                 "dynamodb:BatchGetItem",
-                "dynamodb:GetRecords",
-                "dynamodb:GetShardIterator",
                 "dynamodb:Query",
                 "dynamodb:GetItem",
                 "dynamodb:Scan",
@@ -1191,6 +1218,35 @@ Temporary Password: <strong>{####}</strong>
                 "dynamodb:UpdateItem",
                 "dynamodb:DeleteItem",
                 "dynamodb:DescribeTable",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "DataAccessLayerConfigTableFC483DD7",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "DataAccessLayerConfigTableFC483DD7",
+                          "Arn",
+                        ],
+                      },
+                      "/index/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
               ],
               "Effect": "Allow",
               "Resource": [
@@ -1233,7 +1289,21 @@ Temporary Password: <strong>{####}</strong>
         "ResponseParameters": {
           "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
           "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Methods": "'GET,OPTIONS,POST,PUT,DELETE'",
-          "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Origin": "'*'",
+          "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Origin": {
+            "Fn::Join": [
+              "",
+              [
+                "'https://",
+                {
+                  "Fn::GetAtt": [
+                    "WebDistributionAdminUIDistributionToS3CloudFrontDistribution6FD651BA",
+                    "DomainName",
+                  ],
+                },
+                "'",
+              ],
+            ],
+          },
         },
         "ResponseType": "DEFAULT_4XX",
         "RestApiId": {
@@ -1247,7 +1317,21 @@ Temporary Password: <strong>{####}</strong>
         "ResponseParameters": {
           "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
           "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Methods": "'GET,OPTIONS,POST,PUT,DELETE'",
-          "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Origin": "'*'",
+          "gatewayresponse.header.gatewayresponse.header.Access-Control-Allow-Origin": {
+            "Fn::Join": [
+              "",
+              [
+                "'https://",
+                {
+                  "Fn::GetAtt": [
+                    "WebDistributionAdminUIDistributionToS3CloudFrontDistribution6FD651BA",
+                    "DomainName",
+                  ],
+                },
+                "'",
+              ],
+            ],
+          },
         },
         "ResponseType": "DEFAULT_5XX",
         "RestApiId": {
@@ -1551,7 +1635,7 @@ Temporary Password: <strong>{####}</strong>
       "Type": "AWS::IAM::Role",
       "UpdateReplacePolicy": "Retain",
     },
-    "DataAccessLayerDITApiDeploymentF2E2DE9Fd8399d1bcccbecfb05e0c520c9950873": {
+    "DataAccessLayerDITApiDeploymentF2E2DE9Fbc4c2a73824095272c467282d96cc74d": {
       "DependsOn": [
         "DataAccessLayerCORSResponse4xx88C1D1E3",
         "DataAccessLayerCORSResponse5xx07AEF476",
@@ -1594,7 +1678,7 @@ Temporary Password: <strong>{####}</strong>
           "Format": "{"requestId":"$context.requestId","extendedRequestId":"$context.extendedRequestId","sourceIp":"$context.identity.sourceIp","caller":"$context.identity.caller","user":"$context.identity.user","method":"$context.httpMethod","resourcePath":"$context.resourcePath","protocol":"$context.protocol","status":"$context.status","requestTime":"$context.requestTime","responseLength":"$context.responseLength"}",
         },
         "DeploymentId": {
-          "Ref": "DataAccessLayerDITApiDeploymentF2E2DE9Fd8399d1bcccbecfb05e0c520c9950873",
+          "Ref": "DataAccessLayerDITApiDeploymentF2E2DE9Fbc4c2a73824095272c467282d96cc74d",
         },
         "MethodSettings": [
           {
@@ -1622,9 +1706,25 @@ Temporary Password: <strong>{####}</strong>
           "IntegrationResponses": [
             {
               "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Credentials": "'true'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
                 "method.response.header.Access-Control-Allow-Methods": "'*'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Origin": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "'https://",
+                      {
+                        "Fn::GetAtt": [
+                          "WebDistributionAdminUIDistributionToS3CloudFrontDistribution6FD651BA",
+                          "DomainName",
+                        ],
+                      },
+                      "'",
+                    ],
+                  ],
+                },
+                "method.response.header.Vary": "'Origin'",
               },
               "StatusCode": "204",
             },
@@ -1637,9 +1737,11 @@ Temporary Password: <strong>{####}</strong>
         "MethodResponses": [
           {
             "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Credentials": true,
               "method.response.header.Access-Control-Allow-Headers": true,
               "method.response.header.Access-Control-Allow-Methods": true,
               "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Vary": true,
             },
             "StatusCode": "204",
           },
@@ -1804,9 +1906,25 @@ Temporary Password: <strong>{####}</strong>
           "IntegrationResponses": [
             {
               "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Credentials": "'true'",
                 "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
                 "method.response.header.Access-Control-Allow-Methods": "'*'",
-                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Origin": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "'https://",
+                      {
+                        "Fn::GetAtt": [
+                          "WebDistributionAdminUIDistributionToS3CloudFrontDistribution6FD651BA",
+                          "DomainName",
+                        ],
+                      },
+                      "'",
+                    ],
+                  ],
+                },
+                "method.response.header.Vary": "'Origin'",
               },
               "StatusCode": "204",
             },
@@ -1819,9 +1937,11 @@ Temporary Password: <strong>{####}</strong>
         "MethodResponses": [
           {
             "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Credentials": true,
               "method.response.header.Access-Control-Allow-Headers": true,
               "method.response.header.Access-Control-Allow-Methods": true,
               "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Vary": true,
             },
             "StatusCode": "204",
           },
@@ -1873,11 +1993,8 @@ Temporary Password: <strong>{####}</strong>
       "DeletionPolicy": "Delete",
       "Properties": {
         "Parameters": {
-          "DeploymentSize": {
-            "Ref": "DeploymentSize",
-          },
-          "OriginOverrideHeader": {
-            "Ref": "OriginOverrideHeader",
+          "referencetoTestManagementStackCorsOriginParameter7234A77ARef": {
+            "Ref": "CorsOriginParameter",
           },
           "referencetoTestManagementStackDataAccessLayerConfigTable9BD19AB9Arn": {
             "Fn::GetAtt": [
@@ -1891,11 +2008,17 @@ Temporary Password: <strong>{####}</strong>
               "StreamArn",
             ],
           },
+          "referencetoTestManagementStackDeploymentSize0180D410Ref": {
+            "Ref": "DeploymentSize",
+          },
           "referencetoTestManagementStackMetricsUUID9BBED294UUID": {
             "Fn::GetAtt": [
               "MetricsUUIDABD69ADD",
               "UUID",
             ],
+          },
+          "referencetoTestManagementStackOriginOverrideHeader4D0E20B0Ref": {
+            "Ref": "OriginOverrideHeader",
           },
         },
         "TemplateURL": "Omitted to remove snapshot dependency on hash",
@@ -2036,7 +2159,7 @@ Temporary Password: <strong>{####}</strong>
         "Environment": {
           "Variables": {
             "SOLUTION_ID": "SO0023",
-            "SOLUTION_VERSION": "Omitted to remove snapshot dependency on solution version",
+            "SOLUTION_VERSION": "v8.0.3",
           },
         },
         "Handler": "index.handler",

@@ -29,14 +29,14 @@ export class OriginFetcher {
       try {
         UrlValidator.validate(url);
       } catch (error) {
-        throw new ImageProcessingError(400, 'InvalidUrl', error instanceof Error ? error.message : 'Invalid URL');
+        throw new ImageProcessingError(400, 'InvalidUrl', 'Invalid URL', `URL validation failed for '${url}': ${error instanceof Error ? error.message : 'Unknown validation error'}`);
       }
       result = await this.fetchFromHttp(url, headers);
     } else {
-      throw new ImageProcessingError(400, 'InvalidUrl', 'Unsupported URL protocol');
+      throw new ImageProcessingError(400, 'InvalidUrl', 'Unsupported URL protocol', `URL '${url}' uses an unsupported protocol. Only http://, https://, and s3:// are supported.`);
     }
 
-    this.validateImageMagicNumbers(result.buffer, result.contentType);
+    this.validateImageMagicNumbers(result.buffer, result.contentType, url);
     const fetchDurationMs = Date.now() - startTime;
     
     console.log(JSON.stringify({
@@ -79,7 +79,7 @@ export class OriginFetcher {
       const response = await this.s3Client.send(command);
       
       if (!response.Body) {
-        throw new ImageProcessingError(404, 'ImageNotFound', 'Image not found in S3');
+        throw new ImageProcessingError(404, 'ImageNotFound', 'Image not found in S3', `S3 GetObject returned empty body for '${url}'.`);
       }
 
       const buffer = Buffer.isBuffer(response.Body) 
@@ -89,7 +89,7 @@ export class OriginFetcher {
       return { buffer, contentType: response.ContentType };
     } catch (error) {
       if (error instanceof Error && error.message === 'Invalid S3 URL format') {
-        throw new ImageProcessingError(400, 'InvalidS3Url', error.message);
+        throw new ImageProcessingError(400, 'InvalidS3Url', 'Invalid S3 URL format', `Failed to parse S3 URL '${url}': ${error.message}`);
       }
       throw this.handleFetchError(error, url);
     }
@@ -118,7 +118,8 @@ export class OriginFetcher {
         throw new ImageProcessingError(
           response.status,
           'HttpFetchError',
-          `Failed to fetch image: ${response.status} ${response.statusText}`
+          'Failed to fetch image',
+          `HTTP ${response.status} ${response.statusText} returned from origin '${url}'.`
         );
       }
 
@@ -127,7 +128,8 @@ export class OriginFetcher {
         throw new ImageProcessingError(
           415,
           'InvalidContentType',
-          `Invalid content type: ${contentType}`
+          `Invalid content type: ${contentType}`,
+          `Origin '${url}' returned unsupported Content-Type '${contentType}'.`
         );
       }
 
@@ -135,7 +137,7 @@ export class OriginFetcher {
       return { buffer: Buffer.from(arrayBuffer), contentType: contentType || undefined };
     } catch (error) {
       if (error.name === 'AbortError') {
-        throw new ImageProcessingError(504, 'RequestTimeout', 'Origin Request timeout');
+        throw new ImageProcessingError(504, 'RequestTimeout', 'Origin request timeout', `HTTP request to '${url}' exceeded ${this.httpTimeout}ms timeout.`);
       }
       throw this.handleFetchError(error, url);
     }
@@ -157,12 +159,12 @@ export class OriginFetcher {
     return validTypes.some(type => contentType.toLowerCase().includes(type));
   }
 
-  private validateImageMagicNumbers(buffer: Buffer, contentType?: string): void {
+  private validateImageMagicNumbers(buffer: Buffer, contentType: string | undefined, url: string): void {
     // Where applicable the first 4 bytes are checked against that formats starting sequence.
     // For formats with inconsistent or non-existant starting sequences(av1, raw, etc) this validation is skipped.
 
     if (buffer.length < 4) {
-      throw new ImageProcessingError(415, 'InvalidImage', 'File too small to be a valid image');
+      throw new ImageProcessingError(415, 'InvalidImage', 'Invalid image file', `Image from '${url}' is only ${buffer.length} bytes, too small to be a valid image.`);
     }
 
     const magicToFormat = {
@@ -198,10 +200,10 @@ export class OriginFetcher {
       // If no expectedFormat found, skip magic number validation
       if (expectedFormat) {
         if (!detectedFormat) {
-          throw new ImageProcessingError(415, 'InvalidImage', `Invalid or corrupted ${expectedFormat} file`);
+          throw new ImageProcessingError(415, 'InvalidImage', 'Invalid image file', `Image from '${url}': Content-Type indicates ${expectedFormat} but file header '${fileHeader}' does not match any known ${expectedFormat} magic number.`);
         }
         if (expectedFormat !== detectedFormat) {
-          throw new ImageProcessingError(415, 'InvalidImage', `Content-Type ${contentType} does not match detected format ${detectedFormat}`);
+          throw new ImageProcessingError(415, 'InvalidImage', 'Content-Type mismatch', `Image from '${url}': Content-Type '${contentType}' indicates ${expectedFormat} but magic number detected ${detectedFormat}.`);
         }
       }
     }
@@ -215,13 +217,14 @@ export class OriginFetcher {
     const mappedError = S3ErrorHandler.mapError(error);
     if (mappedError) {
       const errorType = mappedError.errorType === 'KeyNotFound' ? 'ImageNotFound' : mappedError.errorType;
-      return new ImageProcessingError(mappedError.statusCode, errorType, mappedError.message);
+      return new ImageProcessingError(mappedError.statusCode, errorType, mappedError.message, `S3 error fetching '${url}': ${error.message || error.name}`);
     }
 
     return new ImageProcessingError(
       500,
       'FetchError',
-      `Failed to fetch image from ${url}: ${error.message}`
+      'Failed to fetch image',
+      `Unexpected error fetching '${url}': ${error.name} - ${error.message}`
     );
   }
 

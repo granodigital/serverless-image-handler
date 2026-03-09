@@ -32,11 +32,6 @@ export function cleanTemplateForSnapshot(templateJson: any): any {
       resource.Properties.ContainerDefinitions[0].Image = "Omitted to remove snapshot dependency on hash";
     }
 
-    if (resource.Properties?.Environment?.Variables?.SOLUTION_VERSION) {
-      resource.Properties.Environment.Variables.SOLUTION_VERSION =
-        "Omitted to remove snapshot dependency on solution version";
-    }
-
     if (resource.Properties?.ImportSource?.SourceArn) {
       resource.Properties.ImportSource.SourceArn = "Omitted to remove snapshot dependency on bucket";
     }

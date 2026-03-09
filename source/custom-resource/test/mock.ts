@@ -139,17 +139,17 @@ jest.mock("@aws-sdk/client-cloudfront", () => {
   };
 });
 
-// Mock axios
-export const mockAxios = {
-  put: jest.fn().mockImplementation(() => Promise.resolve()),
-  post: jest.fn().mockImplementation(() => Promise.resolve()),
-};
-jest.mock("axios", () => ({
-  ...mockAxios,
-}));
+// Mock fetch
+export const mockFetch = jest.fn().mockImplementation(() =>
+  Promise.resolve({ ok: true, status: 200, statusText: "OK" })
+);
+global.fetch = mockFetch;
 
-// Mock uuid
-jest.mock("uuid", () => ({ v4: jest.fn(() => "mock-uuid") }));
+// Mock crypto.randomUUID
+jest.mock("crypto", () => ({
+  ...jest.requireActual("crypto"),
+  randomUUID: jest.fn(() => "mock-uuid"),
+}));
 
 // Mock timestamp
 const mockTimeStamp = new Date();

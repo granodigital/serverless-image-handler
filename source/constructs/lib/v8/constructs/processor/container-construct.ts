@@ -131,7 +131,7 @@ export class ContainerConstruct extends Construct {
   /**
    * Create IAM role for ECS tasks with necessary permissions
    */
-  public createTaskRole(configTableArn?: string): iam.Role {
+  public createTaskRole(logGroupArn: string, configTableArn?: string): iam.Role {
     const taskRole = new iam.Role(this, "TaskRole", {
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
       description: "ECS Task Role for Image Processing Service",
@@ -141,15 +141,15 @@ export class ContainerConstruct extends Construct {
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ["s3:GetObject", "s3:ListBucket"],
-        resources: ["*"], // TODO: Validate perm, restricting might not be possible as customers add origin after deployment
+        resources: ["*"],
       })
     );
 
     taskRole.addToPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-        resources: ["*"],
+        actions: ["logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: [logGroupArn, `${logGroupArn}:*`],
       })
     );
 

@@ -980,6 +980,7 @@ AwsJavaSdk-Core-Regions/AwsJavaSdk-Core-Regions under the Apache-2.0 license.
 AwsJavaSdk-Core-Retries/AwsJavaSdk-Core-Retries under the Apache-2.0 license.
 AwsJavaSdk-Core-RetriesSpi/AwsJavaSdk-Core-RetriesSpi under the Apache-2.0 license.
 AwsJavaSdk-Core-Utils/AwsJavaSdk-Core-Utils under the Apache-2.0 license.
+AwsJavaSdk-Core-UtilsLite/AwsJavaSdk-Core-UtilsLite under the Apache-2.0 license.
 AwsJavaSdk-DynamoDb/AwsJavaSdk-DynamoDb under the Apache-2.0 license.
 AwsJavaSdk-DynamoDb-Enhanced/AwsJavaSdk-DynamoDb-Enhanced under the Apache-2.0 license.
 AwsJavaSdk-HttpClient/AwsJavaSdk-HttpClient under the Apache-2.0 license.
@@ -1415,7 +1416,14 @@ com.amazon.ion.java/IonJava under the Apache-2.0 license.
 @aws-sdk/credential-provider-login under the Apache-2.0 license.
 @aws-sdk/dynamodb-codec under the Apache-2.0 license.
 @aws-sdk/crc64-nvme under the Apache-2.0 license.
-
+@aws-cdk/cloud-assembly-api under the Apache-2.0 license.
+fast-check under the MIT license.
+@rollup/rollup-linux-loong64-gnu under the MIT license.
+@rollup/rollup-linux-loong64-musl under the MIT license.
+@rollup/rollup-linux-ppc64-musl under the MIT license.
+@rollup/rollup-openbsd-x64 under the MIT license.
+@rollup/rollup-openharmony-arm64 under the MIT license.
+@rollup/rollup-win32-x64-gnu under the MIT license.
 
 ********************
 OPEN SOURCE LICENSES

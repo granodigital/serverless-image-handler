@@ -11,11 +11,9 @@
   "scripts": {
     "clean": "rm -rf node_modules/ dist/ coverage/",
     "pretest": "npm run clean && npm ci",
-    "test": "jest --coverage --silent",
-    "bump-version": "npm version $(cat ../../VERSION.txt) --allow-same-version"
+    "test": "jest --coverage --silent"
   },
   "dependencies": {
-    "axios": "^1.7.4",
     "moment": "^2.30.0"
   },
   "devDependencies": {
@@ -26,5 +24,8 @@
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "minimatch@3": "3.1.5"
   }
 }

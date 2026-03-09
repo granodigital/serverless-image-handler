@@ -11,6 +11,7 @@ import {
   QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
+import { getOptions } from "../../solution-utils/get-options";
 import { logger } from "../common";
 import { AllowedDataModelEntities, AllowedDBEntities, DAO, DBEntityType } from "../interfaces";
 
@@ -33,7 +34,7 @@ export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedData
       throw new Error("CONFIG_TABLE_NAME environment variable is required");
     }
 
-    this.ddbDocClient = ddbDocClient || DynamoDBDocumentClient.from(new DynamoDBClient({}));
+    this.ddbDocClient = ddbDocClient || DynamoDBDocumentClient.from(new DynamoDBClient(getOptions()));
   }
 
   async getAll(nextToken?: string): Promise<{ items: T[]; nextToken?: string }> {

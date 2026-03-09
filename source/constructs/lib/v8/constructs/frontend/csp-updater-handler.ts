@@ -4,6 +4,7 @@
 import { CloudFrontClient, GetDistributionConfigCommand, UpdateDistributionCommand } from '@aws-sdk/client-cloudfront';
 import { Context } from 'aws-lambda';
 import { Logger } from '@aws-lambda-powertools/logger';
+import { getOptions } from '../../../../../solution-utils/get-options';
 
 const logger = new Logger();
 
@@ -35,7 +36,7 @@ export const handler = async (event: CustomResourceEvent, context: Context) => {
 const applyCSPPolicy = async (event: CustomResourceEvent) => {
     logger.info('Applying enhanced CSP policy', { requestType: event.RequestType });
     
-    const cfClient = new CloudFrontClient({});
+    const cfClient = new CloudFrontClient(getOptions());
     const distributionId = event.ResourceProperties.DistributionId;
     const responseHeadersPolicyId = event.ResourceProperties.ResponseHeadersPolicyId;
         const getConfigResponse = await cfClient.send(
@@ -70,7 +71,7 @@ const applyCSPPolicy = async (event: CustomResourceEvent) => {
 const removeCSPPolicy = async (event: CustomResourceEvent) => {
     logger.info('Removing CSP policy');
     
-    const cfClient = new CloudFrontClient({});
+    const cfClient = new CloudFrontClient(getOptions());
     const distributionId = event.ResourceProperties.DistributionId;
     
     const getConfigResponse = await cfClient.send(

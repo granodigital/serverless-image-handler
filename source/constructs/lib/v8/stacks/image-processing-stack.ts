@@ -12,15 +12,17 @@ import {
   Fn,
   NestedStack,
   NestedStackProps,
+  RemovalPolicy,
 } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import * as path from "path";
 import { addCfnGuardSuppressRules } from "../../../utils/utils";
-import { Utility } from "../constructs/common";
+import { LOG_RETENTION_DAYS, Utility } from "../constructs/common";
 import { AlbEcsConstruct, ContainerConstruct, EcsConfig, NetworkConstruct } from "../constructs/processor";
 import { SolutionsMetrics, ExecutionDay } from "metrics-utils";
 
@@ -28,6 +30,9 @@ interface ImageProcessingStackProps extends NestedStackProps {
   configTable: TableV2;
   uuid?: string;
   configTableArn?: string;
+  deploymentSize: string;
+  originOverrideHeader?: string
+  corsOrigin?: string;
 }
 
 /**
@@ -43,28 +48,11 @@ export class ImageProcessingStack extends NestedStack {
   constructor(scope: Construct, id: string, props: ImageProcessingStackProps) {
     super(scope, id, props);
 
-    // CloudFormation Parameters
-    const deploymentSize = new CfnParameter(this, "DeploymentSize", {
-      type: "String",
-      description: "T-shirt sizing for ECS Fargate deployment configuration",
-      allowedValues: ["small", "medium", "large", "xlarge"],
-      default: "small",
-      constraintDescription: "Must be one of: small, medium, large, xlarge",
-    });
-
-    const originOverrideHeader = new CfnParameter(this, "OriginOverrideHeader", {
-      type: "String",
-      description: "HTTP header name used to override the origin destination for image requests",
-      default: "",
-      constraintDescription: "Must be a valid HTTP header name or empty",
-      allowedPattern: "^$|^[a-zA-Z0-9-]+$",
-    });
-
     // Get VPC CIDR from context with fallback to default
     const vpcCidr = this.node.tryGetContext("vpcCidr") || "10.0.0.0/16";
 
     // Get deployment size from CloudFormation parameter
-    const deploymentSizeValue = deploymentSize.valueAsString;
+    const deploymentSizeValue = props.deploymentSize;
 
     // Get ECS configuration based on deployment size
     const ecsConfig = this.getEcsConfiguration(deploymentSizeValue);
@@ -73,9 +61,24 @@ export class ImageProcessingStack extends NestedStack {
       vpcCidr,
     });
 
+    // Create log group for ECS container logs
+    const containerLogGroup = new logs.LogGroup(this, "ContainerLogGroup", {
+      retention: LOG_RETENTION_DAYS,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    addCfnGuardSuppressRules(containerLogGroup, [
+      {
+        id: "CLOUDWATCH_LOG_GROUP_ENCRYPTED",
+        reason:
+          "Using AWS managed encryption for CloudWatch Logs. No customer data is stored, so customer-managed KMS keys are not required to avoid unnecessary costs.",
+      },
+    ]);
+
     const containerConstruct = new ContainerConstruct(this, "Container", {
       sourceDirectory: path.join(__dirname, "../../../../"), // Points to source/ directory
     });
+    const ecsTaskRole = containerConstruct.createTaskRole(containerLogGroup.logGroupArn, props.configTable.tableArn);
 
     const albEcsConstruct = new AlbEcsConstruct(this, "AlbEcs", {
       vpc: networkConstruct.vpc,
@@ -84,10 +87,11 @@ export class ImageProcessingStack extends NestedStack {
       imageUri: containerConstruct.imageUri,
       ecsConfig,
       taskExecutionRole: containerConstruct.createTaskExecutionRole(),
-      taskRole: containerConstruct.createTaskRole(props.configTable.tableArn),
+      taskRole: ecsTaskRole,
       stackName: this.stackName,
       configTableArn: props.configTable.tableArn,
-      originOverrideHeader: originOverrideHeader.valueAsString,
+      originOverrideHeader: props.originOverrideHeader,
+      logGroup: containerLogGroup,
     });
 
     const deploymentMode = this.node.tryGetContext("deploymentMode") || "prod";
@@ -106,13 +110,17 @@ export class ImageProcessingStack extends NestedStack {
     }
 
     const hasOriginOverrideHeader = new CfnCondition(this, "HasOriginOverrideHeader", {
-      expression: Fn.conditionNot(Fn.conditionEquals(originOverrideHeader.valueAsString, "")),
+      expression: Fn.conditionNot(Fn.conditionEquals(props.originOverrideHeader, "")),
     });
 
     let distribution: cloudfront.Distribution | undefined;
     let loggingBucket: s3.Bucket | undefined;
     let ditCachePolicy: cloudfront.CachePolicy | undefined;
     let ditFunction: cloudfront.Function | undefined;
+
+    const corsOriginIsEmpty = new CfnCondition(this, "CorsOriginIsEmpty", {
+      expression: Fn.conditionEquals(props.corsOrigin, ""),
+    });
 
     if (!isDevMode) {
       loggingBucket = new s3.Bucket(this, "LoggingBucket", {
@@ -164,7 +172,7 @@ export class ImageProcessingStack extends NestedStack {
         "CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers",
         Fn.conditionIf(
           hasOriginOverrideHeader.logicalId,
-          ["dit-host", "dit-accept", "dit-dpr", "dit-viewport-width", originOverrideHeader.valueAsString],
+          ["dit-host", "dit-accept", "dit-dpr", "dit-viewport-width", props.originOverrideHeader],
           ["dit-host", "dit-accept", "dit-dpr", "dit-viewport-width"]
         )
       );
@@ -194,6 +202,17 @@ export class ImageProcessingStack extends NestedStack {
             protection: true,
             override: false,
           },
+        },
+        corsBehavior: {
+          accessControlAllowOrigins: [Fn.conditionIf(
+            "CorsOriginIsEmpty",
+            "*",
+            props.corsOrigin!
+          ).toString()],
+          accessControlAllowMethods: ["GET", "HEAD"],
+          accessControlAllowHeaders: ["*"],
+          accessControlAllowCredentials: false,
+          originOverride: true,
         },
         customHeadersBehavior: {
           customHeaders: [
@@ -243,11 +262,11 @@ export class ImageProcessingStack extends NestedStack {
 
       const cfnDistribution = distribution.node.defaultChild as cloudfront.CfnDistribution;
 
-      new cloudfront.CfnMonitoringSubscription(this, 'DistributionMonitoring', {
+      new cloudfront.CfnMonitoringSubscription(this, "DistributionMonitoring", {
         distributionId: distribution.distributionId,
         monitoringSubscription: {
           realtimeMetricsSubscriptionConfig: {
-            realtimeMetricsSubscriptionStatus: 'Enabled',
+            realtimeMetricsSubscriptionStatus: "Enabled",
           },
         },
       });
@@ -276,35 +295,35 @@ export class ImageProcessingStack extends NestedStack {
       });
 
       solutionsMetrics.addECSImageSizeMetrics({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSImageFormatMetrics({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSTransformationTimeBuckets({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSImageSizeBuckets({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSImageRequestCount({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSOriginTypeMetrics({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addECSTransformationUsageMetrics({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       solutionsMetrics.addTransformationSourceMetrics({
-        logGroups: [albEcsConstruct.logGroup],
+        logGroups: [containerLogGroup],
       });
 
       if (!isDevMode && distribution) {

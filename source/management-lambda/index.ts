@@ -39,6 +39,13 @@ const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayPro
       logger.error("Internal server error", { error: error?.message || "Unknown error" });
       request.response = new InternalServerError().toApiResponse();
     }
+
+    if (request.response) {
+      request.response.headers = {
+        ...request.response.headers,
+        "Cache-Control": "no-store, no-cache",
+      };
+    }
   },
 });
 
@@ -64,13 +71,25 @@ const addRequestId = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayPro
   },
 });
 
+// Add Cache-Control header to all responses to prevent caching of sensitive data
+const addCacheControlHeader = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayProxyResult> => ({
+  after: async (request) => {
+    if (request.response) {
+      request.response.headers = {
+        ...request.response.headers,
+        "Cache-Control": "no-store, no-cache",
+      };
+    }
+  },
+});
+
 export const handler = middy()
   .use(injectLambdaContext(logger, { resetKeys: true })) // custom keys can persist across invocations, so reset
   .use(addRequestId())
   .use(httpHeaderNormalizer())
   .use(
     cors({
-      origin: "*", // Allow all origins, or specify your CloudFront domain
+      origin: process.env.CORS_ORIGIN!,
       credentials: true,
       headers: "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
     })
@@ -78,4 +97,5 @@ export const handler = middy()
   .use(httpSecurityHeaders())
   .use(conditionalJsonBodyParser())
   .use(errorHandler())
+  .use(addCacheControlHeader())
   .handler(httpRouterHandler(routes));

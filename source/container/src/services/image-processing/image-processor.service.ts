@@ -119,8 +119,10 @@ export class ImageProcessorService {
   }
 
   private instantiateSharpImage(imageBuffer: Buffer, imageEdits: any, options?: any): sharp.Sharp {
+    const limitInputPixels = parseInt(process.env.LIMIT_INPUT_PIXELS || '1000000000', 10);
+    const sharpOptions: sharp.SharpOptions = { limitInputPixels, ...options };
     // Default behavior of DIT is to keep all Metadata. Sharp by default converts the ICC to sRGB. Must chain keepIcc and keepMetadata to prevent this.
-    let returnInstance = sharp(imageBuffer, options).keepIccProfile().keepMetadata();
+    let returnInstance = sharp(imageBuffer, sharpOptions).keepIccProfile().keepMetadata();
     try {
       if(imageEdits.stripExif === true){
         // Removes all EXIF, by inserting the Software EXIF tag. Atleast 1 field is required to use Sharp.withExif(). Leaves ICC untouched.

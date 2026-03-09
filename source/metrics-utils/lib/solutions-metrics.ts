@@ -11,7 +11,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 
 import { LambdaToSqsToLambda } from "@aws-solutions-constructs/aws-lambda-sqs-lambda";
 import { MetricDataQuery } from "@aws-sdk/client-cloudwatch";
-import { ILogGroup, QueryDefinition, QueryDefinitionProps, QueryString } from "aws-cdk-lib/aws-logs";
+import { QueryDefinition, QueryDefinitionProps, QueryString } from "aws-cdk-lib/aws-logs";
 import { ExecutionDay, MetricDataProps, SolutionsMetricProps } from "../lambda/helpers/types";
 import {
   addLambdaBilledDurationMemorySize,
@@ -146,9 +146,15 @@ export class SolutionsMetrics extends Construct {
       this.existingMetricIdentifiers.add(metricIdentifier);
     });
 
-    queryDefinitionProps.logGroups?.map((logGroup: ILogGroup) =>
-      logGroup.grant(this.metricsLambdaFunction, "logs:StartQuery", "logs:GetQueryResults")
-    );
+    if (queryDefinitionProps.logGroups && queryDefinitionProps.logGroups.length > 0) {
+	      this.metricsLambdaFunction.addToRolePolicy(
+	        new PolicyStatement({
+	          actions: ["logs:StartQuery", "logs:GetQueryResults"],
+	          resources: queryDefinitionProps.logGroups.map((logGroup) => logGroup.logGroupRef.logGroupArn),
+	        })
+	      );
+	    }
+    
     this.metricsLambdaFunction.addToRolePolicy(
       new PolicyStatement({
         actions: ["logs:DescribeQueryDefinitions"],

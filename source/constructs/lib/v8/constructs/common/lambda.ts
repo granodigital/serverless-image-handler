@@ -29,6 +29,8 @@ export class DITNodejsFunction extends NodejsFunction {
       },
     ]);
 
+    const { SOLUTION_ID, VERSION } = process.env;
+
     super(scope, id, {
       runtime: DIT_LAMBDA_RUNTIME,
       memorySize: DIT_LAMBDA_DEFAULT_MEMORY_SIZE,
@@ -39,6 +41,11 @@ export class DITNodejsFunction extends NodejsFunction {
         sourceMap: true,
       },
       ...props,
+      environment: {
+        SOLUTION_ID: SOLUTION_ID ?? scope.node.tryGetContext("solutionId"),
+        SOLUTION_VERSION: VERSION ?? scope.node.tryGetContext("solutionVersion"),
+        ...props?.environment,
+      },
     });
   }
 }

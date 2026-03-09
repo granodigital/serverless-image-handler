@@ -21,7 +21,7 @@ function isArray(val) {
 }
 
 function parseValue(val) {
-  if (typeof val == 'undefined' || val == '') {
+  if (typeof val == 'undefined' || val === '') {
     return null;
   } else if (typeof val === 'string' && (val.includes('[') || val.includes(','))) {
     return parseNestedArray(val);
@@ -43,7 +43,7 @@ function parseObject(obj) {
   var key, val;
   for (key in obj) {
     val = parseValue(obj[key]);
-    if (val !== null) result[key] = val;
+    result[key] = val;
   }
   return result;
 }

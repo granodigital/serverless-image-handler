@@ -28,7 +28,6 @@ module.exports = {
   verbose: true,
   // AWS SDK v3 mocking support (for future unit tests)
   moduleNameMapper: {
-    '^@aws-sdk/(.*)$': '<rootDir>/../node_modules/@aws-sdk/$1',
     '^@dit/(.*)$': '<rootDir>/../node_modules/@dit/$1'
   },
   // Clear mocks between tests

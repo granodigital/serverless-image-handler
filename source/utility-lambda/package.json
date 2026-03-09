@@ -5,8 +5,8 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@aws-sdk/client-ecs": "^3.0.0",
-    "@aws-sdk/client-cloudwatch": "^3.0.0",
+    "@aws-sdk/client-ecs": "^3.993.0",
+    "@aws-sdk/client-cloudwatch": "^3.993.0",
     "@types/aws-lambda": "^8.10.0"
   },
   "devDependencies": {
@@ -34,5 +34,9 @@
         }
       ]
     ]
+  },
+  "overrides": {
+    "minimatch@3": "3.1.5",
+    "fast-xml-parser": "5.3.8"
   }
 }
