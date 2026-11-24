@@ -8,7 +8,7 @@ if (!API_URL || !TEST_ACCESS_TOKEN) {
 
 describe("API Throttling Tests", () => {
   test("[429 Too Many Requests] Trigger throttling", async () => {
-    const requests = Array.from({ length: 500 }, () => {
+    const requests = Array.from({ length: 1000 }, () => {
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 3000);
 

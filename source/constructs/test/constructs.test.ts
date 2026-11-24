@@ -6,7 +6,7 @@ import { App } from "aws-cdk-lib";
 
 import { ServerlessImageHandlerStack } from "../lib/serverless-image-stack";
 
-const SUPPORTED_RUNTIMES = ["nodejs22.x", "python3.13"];
+const SUPPORTED_RUNTIMES = ["nodejs24.x", "python3.13"];
 
 describe("ServerlessImageHandlerStack", () => {
   let app: App;
@@ -70,5 +70,28 @@ describe("ServerlessImageHandlerStack", () => {
       const runtime = lambdaFunctions[functionName].Properties.Runtime;
       expect(SUPPORTED_RUNTIMES).toContain(runtime);
     });
+  });
+
+  test("Demo UI distribution sends X-Frame-Options DENY from a per-stack, conditional policy", () => {
+    const policies = template.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    const policyIds = Object.keys(policies);
+    expect(policyIds).toHaveLength(1);
+    const [policyId] = policyIds;
+    const policy = policies[policyId];
+    const config = policy.Properties.ResponseHeadersPolicyConfig;
+
+    expect(config.SecurityHeadersConfig).toEqual({ FrameOptions: { FrameOption: "DENY", Override: true } });
+    expect(JSON.stringify(config.Name)).toContain('"Ref":"AWS::StackId"');
+
+    const distributions = template.findResources("AWS::CloudFront::Distribution");
+    const demoUi = Object.values(distributions).find((d) =>
+      d.Properties.DistributionConfig.Comment?.startsWith("Demo UI Distribution")
+    );
+    expect(demoUi).toBeDefined();
+    expect(demoUi?.Properties.DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId).toEqual({
+      Ref: policyId,
+    });
+    expect(policy.Condition).toBeDefined();
+    expect(policy.Condition).toEqual(demoUi?.Condition);
   });
 });

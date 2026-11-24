@@ -27,6 +27,8 @@ describe('SharpUtils', () => {
       ['png', 'png'],
       ['webp', 'webp'],
       ['tiff', 'tiff'],
+      ['tif', 'tiff'],
+      ['TIF', 'tiff'],
       ['heif', 'heif'],
       ['raw', 'raw'],
       ['gif', 'gif'],
@@ -66,7 +68,7 @@ describe('SharpUtils', () => {
 
     it('should return default options', () => {
       const options = SharpUtils.getDefaultSharpOptions();
-      expect(options.failOnError).toBe(false);
+      expect(options.failOn).toBe('none');
       expect(options.animated).toBe(false);
       expect(options.sequentialRead).toBe(true);
     });

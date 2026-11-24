@@ -1,21 +1,22 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import sharp from 'sharp';
+import sharp, { Sharp, Metadata, OutputInfo } from 'sharp';
 import { ImageEdits } from '../interfaces';
-import { RekognitionClient, DetectFacesCommand } from '@aws-sdk/client-rekognition';
-import { getOptions } from '../../../utils/get-options';
 import { SharpUtils } from '../utils/sharp-utils';
 import { ImageFitTypes } from '../enums';
 import { ImageProcessingError } from '../types';
+import { ErrorMapper } from '../utils/error-mapping';
 import { CacheRegistry } from '../../cache/cache-registry';
 import { OriginFetcher } from '../origin-fetcher';
+import { SmartCropService } from '../../smart-crop/smart-crop.service';
+import { ContentModerationService } from '../../content-moderation/content-moderation.service';
+import { ORIGIN_BODY_LIMIT_BYTES } from '../../../utils/origin-body-limit';
 
 export class EditApplicator {
-  private static rekognitionClient = new RekognitionClient(getOptions());
   private static originFetcher: OriginFetcher;
 
-  static async applyEdits(image: sharp.Sharp, edits: ImageEdits, originFetcher: OriginFetcher): Promise<void> {
+  static async applyEdits(image: Sharp, edits: ImageEdits, originFetcher: OriginFetcher, primaryBytes = 0): Promise<void> {
     this.originFetcher = originFetcher;
     try {
       const metadata = await image.metadata();
@@ -23,10 +24,16 @@ export class EditApplicator {
       console.debug('Attempting to apply the following edits: ', edits);
 
       if (edits.smartCrop) {
-        await this.applySmartCrop(image, edits.smartCrop);
+        await SmartCropService.getInstance().execute(image, edits.smartCrop);
       }
 
-      // For efficiency we attempt resizing prior to other image transformations. Certain transforms will defer resizing (watermark, crop, etc)
+      if (edits.contentModeration && !isAnimation) {
+        await ContentModerationService.getInstance().execute(image, edits.contentModeration);
+      }
+
+      // Resize runs first for efficiency, but is deferred to after the loop when extract or composite is present:
+      // extract coordinates and watermark offsets/ratios refer to source dimensions. Sharp keeps only the last
+      // resize(), so it is set once.
       await this.applyResize(image, edits);
 
       for (const [operation, value] of Object.entries(edits)) {
@@ -34,8 +41,10 @@ export class EditApplicator {
           switch (operation) {
             case 'smartCrop':
               break;
+            case 'contentModeration':
+              break;
             case 'composite':
-              await this.applyWatermark(image, value);
+              await this.applyWatermark(image, value, primaryBytes);
               break;
             case 'sharpen':
               this.applySharpen(image, value)
@@ -49,7 +58,6 @@ export class EditApplicator {
               break;
             default:
               if (SharpUtils.isAllowedTransformation(operation)) {
-                console.log("Apply Edit Base case for: ", operation, " with value: ", value);
                 image[operation](value);
               }
               break;
@@ -64,12 +72,14 @@ export class EditApplicator {
     } catch (error) {
       if (error instanceof ImageProcessingError) throw error;
       console.error('Sharp applyEdits failed:', { edits, error: error.message, stack: error.stack });
-      throw new ImageProcessingError(500, "Image Processing Error", `Image transformation failed`, error);
+      // Route through ErrorMapper so recognized Sharp errors (e.g. the pixel-limit rejection) keep
+      // their correct client status code instead of being flattened to a blanket 500.
+      throw ErrorMapper.mapError(error);
     }
   }
 
 
-  private static async applyResize(image: sharp.Sharp, edits: ImageEdits){
+  private static async applyResize(image: Sharp, edits: ImageEdits){
     try {
       if (edits.resize === undefined) {
         edits.resize = {};
@@ -107,13 +117,13 @@ export class EditApplicator {
     return operationsResultingInDeferment.some(op => edits[op] !== undefined);
   }
 
-  private static applySharpen(image: sharp.Sharp, editValue: any){
+  private static applySharpen(image: Sharp, editValue: any){
     // Sharpen is allowed to be used as a boolean, such as sharpen: true, in this case the Sharp library performs a fast, mild sharpen of the image.
     // Sharpen may also be used with explicit sigma, m1, m2, etc values. In which case a slower more accurate shapren is performed.
     image.sharpen(editValue === true ? undefined : editValue);
   }
 
-  private static async applyFormat(image: sharp.Sharp, edits: ImageEdits){
+  private static async applyFormat(image: Sharp, edits: ImageEdits){
     try {
       const format = edits.toFormat || (await image.metadata()).format;
       const options = edits.quality ? { quality: edits.quality } : {};
@@ -132,38 +142,7 @@ export class EditApplicator {
   }
 
 
-  private static async applySmartCrop(image: sharp.Sharp, params: any): Promise<void> {
-    try {
-      const [faceIndex = 0, padding = 0] = Array.isArray(params) ? params : [params?.faceIndex || 0, params?.padding || 0];
-      console.debug('SmartCrop params:', { faceIndex, padding });
-      
-      const { imageBuffer, format } = await this.getRekognitionCompatibleImage(image);
-      const boundingBox = await this.getBoundingBox(imageBuffer.data, faceIndex);
-      const cropArea = this.getCropArea(boundingBox, padding, imageBuffer.info);
-      
-      console.debug('SmartCrop area:', cropArea);
-      image.extract(cropArea);
-      
-      if (format !== imageBuffer.info.format) {
-        image.toFormat(format);
-        console.log('SmartCrop: Converted format back to:', format);
-      }
-    } catch (error) {
-      console.error('SmartCrop failed:', { params, error: error.message, stack: error.stack });
-      throw error;
-    }
-  }
-
-  private static async getBoundingBox(imageBuffer: Buffer, faceIndex: number): Promise<any> {
-    const response = await this.rekognitionClient.send(new DetectFacesCommand({ Image: { Bytes: imageBuffer } }));
-    if (!response.FaceDetails?.length) {
-      return { height: 1, left: 0, top: 0, width: 1 };
-    }
-    const box = response.FaceDetails[faceIndex].BoundingBox;
-    return { height: box.Height, left: box.Left, top: box.Top, width: box.Width };
-  }
-
-  private static async applyWatermark(image: sharp.Sharp, edit: Record<string, any>) {
+  private static async applyWatermark(image: Sharp, edit: Record<string, any>, primaryBytes: number) {
     try {
       const { source, offSetArray } = edit;
       const [top, left, alpha, wRatio, hRatio] = offSetArray;
@@ -171,7 +150,7 @@ export class EditApplicator {
       
       console.debug('Watermark params:', { source, offSetArray, baseImageSize: { width: metadata.width, height: metadata.height } });
       
-      const overlayBuffer = await this.getOverlayImage(source, wRatio, hRatio, alpha, metadata);
+      const overlayBuffer = await this.getOverlayImage(source, wRatio, hRatio, alpha, metadata, primaryBytes);
       const leftPos = this.calcOverlaySizeOption(left || 0, metadata.width, overlayBuffer.info.width);
       const topPos = this.calcOverlaySizeOption(top || 0, metadata.height, overlayBuffer.info.height);
       
@@ -183,12 +162,14 @@ export class EditApplicator {
     }
   }
 
-  private static async getOverlayImage(source: string, wRatio: number, hRatio: number, alpha: number, baseMetadata: sharp.Metadata): Promise<{ data: Buffer; info: sharp.OutputInfo }> {
+  private static async getOverlayImage(source: string, wRatio: number, hRatio: number, alpha: number, baseMetadata: Metadata, primaryBytes: number): Promise<{ data: Buffer; info: OutputInfo }> {
     const normalizedSource = this.normalizeSource(source);
     const url = new URL(normalizedSource);
     const targetOrigin = url.host;
     
     const originCache = CacheRegistry.getInstance().getOriginCache();
+    // Overlay allowlist: url.host must equal a registered originDomain exactly (no subdomain or prefix match).
+    // The overlay fetch below sends no originHeaders.
     const origins = await originCache.getContents();
     const origin = origins.find(o => o.originDomain === targetOrigin);
     if (!origin) {
@@ -197,11 +178,13 @@ export class EditApplicator {
     
     let buffer: Buffer;
     try {
-      ({ buffer } = await this.originFetcher.fetchImage(url.href))
+      // The primary image is still in memory, so the overlay gets only what is left of the per-request limit.
+      const overlayLimit = Math.max(0, ORIGIN_BODY_LIMIT_BYTES - primaryBytes);
+      ({ buffer } = await this.originFetcher.fetchImage(url.href, undefined, undefined, overlayLimit));
     } catch (error) {
       if (error instanceof ImageProcessingError) {
         const errorType = error.statusCode === 404 ? 'OverlayImageNotFound' : 'OverlayFetchError';
-        throw new ImageProcessingError(error.statusCode, errorType, `Failed to fetch overlay image: ${error.message}`);
+        throw new ImageProcessingError(error.statusCode, errorType, `Failed to fetch overlay image: ${error.message}`, error.verboseDescription);
       }
       throw error;
     }
@@ -243,31 +226,6 @@ export class EditApplicator {
     return result;
   }
 
-  private static getCropArea(boundingBox: any, padding: number, boxSize: any): any {
-    let left = Math.floor(boundingBox.left * boxSize.width - padding);
-    let top = Math.floor(boundingBox.top * boxSize.height - padding);
-    let width = Math.floor(boundingBox.width * boxSize.width + padding * 2);
-    let height = Math.floor(boundingBox.height * boxSize.height + padding * 2);
-
-    left = Math.max(0, left);
-    top = Math.max(0, top);
-    width = Math.min(width, boxSize.width - left);
-    height = Math.min(height, boxSize.height - top);
-
-    return { left, top, width, height };
-  }
-
-  private static async getRekognitionCompatibleImage(image: sharp.Sharp): Promise<any> {
-    const buffer = await image.toBuffer({ resolveWithObject: true });
-    const format = buffer.info.format;
-    
-    if (!['jpeg', 'png'].includes(format)) {
-      const pngBuffer = await image.png().toBuffer({ resolveWithObject: true });
-      return { imageBuffer: pngBuffer, format };
-    }
-    
-    return { imageBuffer: buffer, format };
-  }
 
   private static normalizeSource(source: string): string {
     // HTTPS is the only supported protocol by DIT. Strip any protocol and replace with https://

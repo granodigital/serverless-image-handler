@@ -24,29 +24,39 @@ export class EcsClient {
   }
 
   private async verifyDeploymentCompleted(cluster: string, service: string): Promise<void> {
-    const response = await this.ecsClient.send(
-      new DescribeServicesCommand({ cluster, services: [service] })
-    );
-    
-    const svc = response.services?.[0];
-    if (!svc) throw new Error(`Service ${service} not found`);
-    
-    const primaryDeployments = svc.deployments?.filter(d => d.status === 'PRIMARY') ?? [];
-    if (primaryDeployments.length !== 1) {
-      throw new Error(`Expected 1 PRIMARY deployment, found ${primaryDeployments.length}`);
+    // rolloutState can lag behind service stability — poll until it transitions
+    const maxRetries = 20;
+    const retryIntervalMs = 15_000;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const response = await this.ecsClient.send(
+        new DescribeServicesCommand({ cluster, services: [service] })
+      );
+
+      const svc = response.services?.[0];
+      if (!svc) throw new Error(`Service ${service} not found`);
+
+      const primaryDeployments = svc.deployments?.filter(d => d.status === 'PRIMARY') ?? [];
+      if (primaryDeployments.length !== 1) {
+        throw new Error(`Expected 1 PRIMARY deployment, found ${primaryDeployments.length}`);
+      }
+
+      const deployment = primaryDeployments[0];
+      const activeDeployments = svc.deployments?.filter(d => d.status === 'ACTIVE') ?? [];
+
+      if (deployment.rolloutState === 'COMPLETED' && activeDeployments.length === 0) {
+        console.log(`Deployment ${deployment.id} verified: rolloutState=${deployment.rolloutState}`);
+        return;
+      }
+
+      if (deployment.rolloutState === 'FAILED') {
+        throw new Error(`Deployment rollout failed: ${deployment.rolloutStateReason}`);
+      }
+
+      console.log(`Attempt ${attempt}/${maxRetries}: rolloutState=${deployment.rolloutState}, activeDeployments=${activeDeployments.length}. Retrying in ${retryIntervalMs / 1000}s...`);
+      await new Promise(resolve => setTimeout(resolve, retryIntervalMs));
     }
-    
-    const deployment = primaryDeployments[0];
-    
-    if (deployment.rolloutState !== 'COMPLETED') {
-      throw new Error(`Deployment rollout not completed: ${deployment.rolloutState}`);
-    }
-    
-    const activeDeployments = svc.deployments?.filter(d => d.status === 'ACTIVE') ?? [];
-    if (activeDeployments.length > 0) {
-      throw new Error(`${activeDeployments.length} ACTIVE deployments still exist`);
-    }
-    
-    console.log(`Deployment ${deployment.id} verified: rolloutState=${deployment.rolloutState}`);
+
+    throw new Error(`Deployment rollout did not complete after ${maxRetries} retries`);
   }
 }

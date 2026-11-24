@@ -806,6 +806,12 @@ function processQueryParams(querystring) {
             ],
           ],
         },
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
       },
       "Type": "AWS::CloudFront::Function",
     },
@@ -857,6 +863,179 @@ function processQueryParams(querystring) {
         },
       },
       "Type": "AWS::CloudFront::CachePolicy",
+    },
+    "BackEndEventSourceMappingResolver0ACBB140": {
+      "Condition": "SendAnonymousStatistics",
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "BackEndSolutionMetricsLambdaToSqsToLambdalambdatosqsqueue60A92083",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "BackEndSolutionMetricsMetricsLambdaF4FA4AF7",
+        },
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "BackEndEventSourceMappingResolverFunctionBA1EFDF2",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::CloudFormation::CustomResource",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "BackEndEventSourceMappingResolverFunctionBA1EFDF2": {
+      "Condition": "SendAnonymousStatistics",
+      "DependsOn": [
+        "BackEndEventSourceMappingResolverFunctionServiceRoleDefaultPolicyF223D80C",
+        "BackEndEventSourceMappingResolverFunctionServiceRole6D07127D",
+      ],
+      "Metadata": {
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W89",
+              "reason": "Not in VPC — only calls Lambda control plane APIs",
+            },
+            {
+              "id": "W92",
+              "reason": "No reserved concurrency needed — runs once during deployment",
+            },
+            {
+              "id": "W58",
+              "reason": "The function does have permission to write CloudWatch Logs.",
+            },
+            {
+              "id": "W89",
+              "reason": "The Lambda function does not require any VPC connection at all.",
+            },
+            {
+              "id": "W92",
+              "reason": "The Lambda function does not require ReservedConcurrentExecutions.",
+            },
+          ],
+        },
+      },
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "Omitted to remove snapshot dependency on hash",
+        },
+        "Description": "Resolves EventSourceMapping conflicts during stack upgrades",
+        "Handler": "index.handler",
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "BackEndEventSourceMappingResolverFunctionServiceRole6D07127D",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs24.x",
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
+        "Timeout": 30,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "BackEndEventSourceMappingResolverFunctionServiceRole6D07127D": {
+      "Condition": "SendAnonymousStatistics",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BackEndEventSourceMappingResolverFunctionServiceRoleDefaultPolicyF223D80C": {
+      "Condition": "SendAnonymousStatistics",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:ListEventSourceMappings",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": "lambda:DeleteEventSourceMapping",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":lambda:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":event-source-mapping:*",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": "cloudformation:ListStackResources",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Sub": "arn:\${AWS::Partition}:cloudformation:\${AWS::Region}:\${AWS::AccountId}:stack/\${AWS::StackName}/*",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BackEndEventSourceMappingResolverFunctionServiceRoleDefaultPolicyF223D80C",
+        "Roles": [
+          {
+            "Ref": "BackEndEventSourceMappingResolverFunctionServiceRole6D07127D",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
     },
     "BackEndImageHandlerCloudFrontApiGatewayLambdaApiAccessLogGroup9B786692": {
       "Condition": "CommonResourcesDisableS3ObjectLambdaCondition017AC33C",
@@ -1974,7 +2153,7 @@ function processQueryParams(querystring) {
             "Arn",
           ],
         },
-        "Runtime": "nodejs22.x",
+        "Runtime": "nodejs24.x",
         "Tags": [
           {
             "Key": "SolutionId",
@@ -2218,6 +2397,12 @@ function processQueryParams(querystring) {
             ],
           ],
         },
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
       },
       "Type": "AWS::CloudFront::Function",
     },
@@ -2287,6 +2472,12 @@ function handler(event) {
             ],
           ],
         },
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
       },
       "Type": "AWS::CloudFront::Function",
     },
@@ -2637,6 +2828,8 @@ function handler(event) {
                 "MON",
               ],
             },
+            "POWERTOOLS_LOGGER_LOG_EVENT": "false",
+            "POWERTOOLS_LOGGER_LOG_LEVEL": "INFO",
             "QUERY_PREFIX": {
               "Fn::Join": [
                 "",
@@ -2675,7 +2868,7 @@ function handler(event) {
             "Arn",
           ],
         },
-        "Runtime": "nodejs22.x",
+        "Runtime": "nodejs24.x",
         "Tags": [
           {
             "Key": "SolutionId",
@@ -2818,6 +3011,9 @@ function handler(event) {
     },
     "BackEndSolutionMetricsMetricsLambdaSqsEventSourceTestStackBackEndSolutionMetricsLambdaToSqsToLambdalambdatosqsqueueC02C743365EF89F7": {
       "Condition": "SendAnonymousStatistics",
+      "DependsOn": [
+        "BackEndEventSourceMappingResolver0ACBB140",
+      ],
       "Properties": {
         "EventSourceArn": {
           "Fn::GetAtt": [
@@ -3098,7 +3294,7 @@ function handler(event) {
             "Arn",
           ],
         },
-        "Runtime": "nodejs22.x",
+        "Runtime": "nodejs24.x",
         "Tags": [
           {
             "Key": "SolutionId",
@@ -3250,18 +3446,32 @@ function handler(event) {
                     "s3:PutBucketVersioning",
                   ],
                   "Effect": "Allow",
-                  "Resource": {
-                    "Fn::Join": [
-                      "",
-                      [
-                        "arn:",
-                        {
-                          "Ref": "AWS::Partition",
-                        },
-                        ":s3:::*",
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition",
+                          },
+                          ":s3:::serverless-image-handler-logs-*",
+                        ],
                       ],
-                    ],
-                  },
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition",
+                          },
+                          ":s3:::sih-dummy-*",
+                        ],
+                      ],
+                    },
+                  ],
                 },
                 {
                   "Action": "s3:ListBucket",
@@ -3640,6 +3850,9 @@ function handler(event) {
         },
       },
       "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
         "Code": {
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
@@ -3657,6 +3870,7 @@ function handler(event) {
             "Ref": "CommonResourcesCustomResourcesDeployWebsiteAwsCliLayerBC025F39",
           },
         ],
+        "MemorySize": 1024,
         "Role": {
           "Fn::GetAtt": [
             "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRole89A01265",
@@ -3837,6 +4051,9 @@ function handler(event) {
           "DefaultCacheBehavior": {
             "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
             "Compress": true,
+            "ResponseHeadersPolicyId": {
+              "Ref": "FrontEndDistributionToS3ResponseHeadersPolicy16DC89C0",
+            },
             "TargetOriginId": "TestStackFrontEndDistributionToS3CloudFrontDistributionOrigin12FCDC222",
             "ViewerProtocolPolicy": "redirect-to-https",
           },
@@ -3933,6 +4150,41 @@ function handler(event) {
         },
       },
       "Type": "AWS::CloudFront::OriginAccessControl",
+    },
+    "FrontEndDistributionToS3ResponseHeadersPolicy16DC89C0": {
+      "Condition": "CommonResourcesDeployDemoUICondition308D3B09",
+      "Properties": {
+        "ResponseHeadersPolicyConfig": {
+          "Name": {
+            "Fn::Join": [
+              "",
+              [
+                "DIT-DemoUI-Headers-",
+                {
+                  "Fn::Select": [
+                    2,
+                    {
+                      "Fn::Split": [
+                        "/",
+                        {
+                          "Ref": "AWS::StackId",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            ],
+          },
+          "SecurityHeadersConfig": {
+            "FrameOptions": {
+              "FrameOption": "DENY",
+              "Override": true,
+            },
+          },
+        },
+      },
+      "Type": "AWS::CloudFront::ResponseHeadersPolicy",
     },
     "FrontEndDistributionToS3S3Bucket3A171D78": {
       "Condition": "CommonResourcesDeployDemoUICondition308D3B09",
@@ -4313,6 +4565,12 @@ function handler(event) {
             ],
           ],
         },
+        "Tags": [
+          {
+            "Key": "SolutionId",
+            "Value": "S0ABC",
+          },
+        ],
       },
       "Type": "AWS::CloudWatch::Dashboard",
     },

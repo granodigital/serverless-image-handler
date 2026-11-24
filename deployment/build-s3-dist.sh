@@ -71,13 +71,9 @@ cp -r "$source_dir/container" "$ecr_build_dir/"
 cp -r "$source_dir/data-models" "$ecr_build_dir/"
 rm -rf "$ecr_build_dir/container/node_modules"
 rm -rf "$ecr_build_dir/data-models/node_modules"
-
-# Create ECR image tag file for stable version
-cat > "$deployment_dir/ecr_image_tags.json" << EOF
-{
-  "dynamic-image-transformation-for-amazon-cloudfront": "v8.0-stable"
-}
-EOF
+rm -rf "$ecr_build_dir/container/test"
+rm -f "$ecr_build_dir/container/Dockerfile.dynamodb-local"
+rm -f "$ecr_build_dir/container/docker-compose.test.yml"
 
 echo "------------------------------------------------------------------------------"
 echo "[Packing] Launch Wizard Assets"

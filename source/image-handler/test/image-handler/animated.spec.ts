@@ -38,7 +38,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(2);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: false,
       limitInputPixels: true,
       unlimited: true,
@@ -63,7 +63,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(1);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: true,
       limitInputPixels: true,
       unlimited: true,
@@ -88,7 +88,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(1);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: false,
       limitInputPixels: true,
       unlimited: true,
@@ -113,7 +113,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(1);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: false,
       limitInputPixels: true,
       unlimited: true,
@@ -138,7 +138,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(1);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: true,
       limitInputPixels: true,
       unlimited: true,
@@ -163,7 +163,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(1);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: false,
       limitInputPixels: true,
       unlimited: true,
@@ -188,7 +188,7 @@ describe("animated", () => {
     await imageHandler.process(request);
     expect(instantiateSpy).toHaveBeenCalledTimes(2);
     expect(instantiateSpy).toHaveBeenCalledWith(request.originalImage, request.edits, {
-      failOnError: false,
+      failOn: "none",
       animated: false,
       limitInputPixels: true,
       unlimited: true,

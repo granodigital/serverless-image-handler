@@ -3,6 +3,17 @@
 
 import { z } from "zod";
 
+// Caps on smart-crop inputs; keep in sync with the parser mirror in container's smart-crop-parser.ts.
+const SMART_CROP_MAX_LABELS = 50;
+const SMART_CROP_MAX_LABEL_LENGTH = 100;
+const SMART_CROP_MAX_CUSTOM_MODEL_ARN_LENGTH = 1000;
+const SMART_CROP_CUSTOM_MODEL_ARN_PATTERN = /^arn:aws:rekognition:[a-z0-9-]+:\d{12}:project\/[^/]+\/version\/[^/]+\/\d+$/;
+// List caps (CVE-2023-54404) only help if they run before elements parse: use .max() (zod 4.6+ checks it first)
+// or a precheck wrapper, never a length .refine(), which runs after every element and reports each failure.
+const CONTENT_MODERATION_MAX_LABELS = 100;
+const CONTENT_MODERATION_MAX_LABEL_LENGTH = 100;
+const POLICY_MAX_JSON_LENGTH = 10000;
+
 const policyIdSchema = z.uuid({ version: "v4" });
 const policyNameSchema = z
   .string()
@@ -37,13 +48,13 @@ const positionSchema = z.union([
 ]);
 
 // Allows either URLs or domain styled watermark sources
-const watermarkUrlSchema = z.string().pipe(z.preprocess((url) => {
-  return url.includes('://') ? url : `https://${url}`;
-}, z.url({
-  hostname: z.regexes.domain,
-  protocol: /^https?$/,
-  error: "Invalid Watermark source domain protocol. Only HTTPS is supported."
-})))
+const watermarkUrlSchema = z.string()
+  .transform((url) => (url.includes('://') ? url : `https://${url}`))
+  .pipe(z.url({
+    hostname: z.regexes.domain,
+    protocol: /^https?$/,
+    error: "Invalid Watermark source domain protocol. Only HTTPS is supported."
+  }))
 
 const watermarkTuple = z.tuple([
   watermarkUrlSchema, // source URL, domain must match with one of the Origins on DIT
@@ -69,7 +80,7 @@ export const transformationSchemas = {
   animated: z.boolean(),
   flatten: colorSchema,
   quality: z.int().min(1).max(100),
-  format: z.enum(["jpg", "jpeg", "png", "tiff", "webp", "gif", "avif"]), // supported image formats
+  format: z.enum(["jpg", "jpeg", "png", "tif", "tiff", "webp", "gif", "avif"]), // supported image formats
   blur: z.number().min(0.3).max(1000),
   convolve: z.strictObject({
     width: z.int().positive(),
@@ -86,6 +97,7 @@ export const transformationSchemas = {
   flip: z.boolean(),
   flop: z.boolean(),
   grayscale: z.boolean(),
+  greyscale: z.boolean(),
   resize: z
     .strictObject({
       width: z.int().min(1).max(4000).optional(),
@@ -116,10 +128,69 @@ export const transformationSchemas = {
     }),
   ]),
   smartCrop: z.union([
-    z.boolean(), // true - 0 indexed face with 0 padding
+    // Legacy formats: smartCrop=true or smartCrop={index, padding}
+    z.boolean(),
     z.strictObject({
-      index: z.int().min(0).max(15), // zero-based index of detected faces, 15 faces supported
-      padding: z.int().nonnegative().default(0), // padding expressed in pixels, applied to all sides
+      index: z.int().min(0).max(15),
+      padding: z.int().nonnegative().default(0),
+    }),
+    // Expanded v8.1 format
+    z.strictObject({
+      enabled: z.boolean().optional(),
+      faces: z.boolean().optional(),
+      faceIndex: z.int().min(0).max(15).optional(),
+      labels: z.array(z.string().min(1).max(SMART_CROP_MAX_LABEL_LENGTH)).max(SMART_CROP_MAX_LABELS).optional(),
+      customModelArn: z
+        .string()
+        .max(SMART_CROP_MAX_CUSTOM_MODEL_ARN_LENGTH)
+        .regex(
+          SMART_CROP_CUSTOM_MODEL_ARN_PATTERN,
+          "customModelArn must be a valid Rekognition Custom Labels project version ARN",
+        )
+        .optional(),
+      aspectRatio: z.string().regex(/^\d{1,3}:\d{1,3}$/, "Aspect ratio must be w:h (e.g. 16:9)").refine((val) => {
+        const [w, h] = val.split(':').map(Number);
+        return w >= 1 && w <= 100 && h >= 1 && h <= 100;
+      }, "Aspect ratio dimensions must be between 1 and 100").optional(),
+      padding: z.union([
+        z.int().nonnegative(),
+        z.string().regex(/^\d{1,4}(%|px)$/, "Padding must be e.g. 10%, 50px"),
+      ]).optional(),
+      gravity: z.union([
+        z.enum([
+          'top-left', 'top-center', 'top-right',
+          'center-left', 'center', 'center-right',
+          'bottom-left', 'bottom-center', 'bottom-right',
+        ]),
+        z.string().min(1),
+      ]).optional(),
+      // Capped here only: the container parser keeps accepting stored policies with duplicate priorities.
+      priorities: z.array(z.enum(['aspectRatio', 'padding'], {
+        message: "Only 'aspectRatio' and 'padding' are configurable priorities. targetInclusion and gravity are applied automatically.",
+      })).max(2, "At most 2 priorities").optional(),
+      retainText: z.boolean().optional(),
+      retainLogo: z.boolean().optional(),
+      fallback: z.enum(['cover', 'contain', 'fill', 'inside', 'outside', 'no-crop']).optional(),
+      minConfidence: z.number().min(0).max(100).optional(),
+    }).refine((data) =>
+      data.faces === true ||
+      data.faceIndex !== undefined ||
+      (data.labels && data.labels.length > 0) ||
+      data.customModelArn !== undefined ||
+      data.retainText === true ||
+      data.retainLogo === true,
+      { message: "At least one detection method is required (faces, faceIndex, labels, customModelArn, retainText, or retainLogo)" },
+    ),
+  ]),
+  contentModeration: z.union([
+    z.literal(true),
+    z.strictObject({
+      minConfidence: z.number().min(0).max(100).optional(),
+      blur: z.number().min(0.3).max(1000).optional(),
+      moderationLabels: z
+        .array(z.string().min(1).max(CONTENT_MODERATION_MAX_LABEL_LENGTH, "Moderation label too long (max 100 characters)"))
+        .max(CONTENT_MODERATION_MAX_LABELS, "At most 100 moderation labels")
+        .optional(),
     }),
   ]),
   stripExif: z.boolean(),
@@ -128,25 +199,41 @@ export const transformationSchemas = {
 };
 
 const outputSchemas = {
+  // A tuple's rest checks no length before parsing its rows, so the row count is checked first.
   quality: z
-    .tuple([
-      transformationSchemas.quality, // default quality, when no client hints found or as static value
-    ])
-    .rest(
-      z.tuple([
-        z.number().min(0), // min dpr
-        z.number().min(0), // max dpr
-        z.int().min(1).max(100), // quality
-      ])
-    )
-    .refine((arr) => arr.length >= 1, "Must have default quality"),
+    .array(z.unknown())
+    .max(21, "At most 20 quality DPR rows")
+    .pipe(
+      z
+        .tuple([
+          transformationSchemas.quality, // default quality, when no client hints found or as static value
+        ])
+        .rest(
+          z.tuple([
+            z.number().min(0), // min dpr
+            z.number().min(0), // max dpr
+            z.int().min(1).max(100), // quality
+          ])
+        )
+        .refine((arr) => arr.length >= 1, "Must have default quality")
+    ),
   format: z.enum(["auto", ...transformationSchemas.format.options]),
-  autosize: z.array(z.int().positive()).min(1, "Must have at least one element as derivative width to support"),
+  // .max() must stay a size check, not a refine; see the list-cap note at the top of the file.
+  autosize: z
+    .array(z.int().positive())
+    .min(1, "Must have at least one element as derivative width to support")
+    .max(20, "At most 20 autosize widths"),
+};
+
+const fallbackSchemas = {
+  quality: z.strictObject({ dpr: z.number().min(1.0).max(5.0) }),
+  format: z.strictObject({ format: transformationSchemas.format }),
+  autosize: z.strictObject({ viewportWidth: z.int().min(320).max(3840) }),
 };
 
 const conditionSchema = z.strictObject({
   field: z.string(),
-  value: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]),
+  value: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()])).max(50, "At most 50 condition values")]),
 });
 
 // Policy schema union of above value schemas
@@ -226,6 +313,11 @@ const policySchema = z
             condition: conditionSchema.optional(),
           }),
           z.strictObject({
+            transformation: z.literal("contentModeration"),
+            value: transformationSchemas.contentModeration,
+            condition: conditionSchema.optional(),
+          }),
+          z.strictObject({
             transformation: z.literal("stripExif"),
             value: transformationSchemas.stripExif,
             condition: conditionSchema.optional(),
@@ -268,11 +360,24 @@ const policySchema = z
     outputs: z
       .array(
         z.discriminatedUnion("type", [
-          z.strictObject({ type: z.literal("quality"), value: outputSchemas.quality }),
-          z.strictObject({ type: z.literal("format"), value: outputSchemas.format }),
-          z.strictObject({ type: z.literal("autosize"), value: outputSchemas.autosize }),
+          z.strictObject({
+            type: z.literal("quality"),
+            value: outputSchemas.quality,
+            fallback: fallbackSchemas.quality.optional(),
+          }),
+          z.strictObject({
+            type: z.literal("format"),
+            value: outputSchemas.format,
+            fallback: fallbackSchemas.format.optional(),
+          }),
+          z.strictObject({
+            type: z.literal("autosize"),
+            value: outputSchemas.autosize,
+            fallback: fallbackSchemas.autosize.optional(),
+          }),
         ])
       )
+      .max(3, "At most 3 output optimizations")
       .refine((outputs) => {
         const types = outputs.map((output) => output.type);
         return new Set(types).size === types.length;
@@ -281,12 +386,27 @@ const policySchema = z
   })
   .refine((val) => {
     const jsonString = JSON.stringify(val);
-    return jsonString.length <= 10000;
+    return jsonString.length <= POLICY_MAX_JSON_LENGTH;
   }, "Policy too large (max 10KB)")
   .refine(
     (val) => (val.transformations && val.transformations.length > 0) || (val.outputs && val.outputs.length > 0),
     "Policy must have at least one transformation or output optimization"
   );
+
+// The size refine above runs only after every field parses, so check the input first to stop an oversized
+// policy collecting one issue per element; unmeasurable values fall through to the inner schema's error.
+const policyJSONSchema = z
+  .unknown()
+  .refine((val) => {
+    let jsonString: string | undefined;
+    try {
+      jsonString = JSON.stringify(val);
+    } catch {
+      return true;
+    }
+    return jsonString === undefined || jsonString.length <= POLICY_MAX_JSON_LENGTH;
+  }, "Policy too large (max 10KB)")
+  .pipe(policySchema);
 
 /**
  * Zod schema for TransformationPolicy entity
@@ -296,7 +416,7 @@ const TransformationPolicySchema = z.strictObject({
   policyId: policyIdSchema,
   policyName: policyNameSchema,
   description: descriptionSchema.optional(),
-  policyJSON: policySchema,
+  policyJSON: policyJSONSchema,
   isDefault: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime().optional(),
@@ -309,7 +429,7 @@ const TransformationPolicySchema = z.strictObject({
 const PolicyCreateSchema = z.strictObject({
   policyName: policyNameSchema,
   description: descriptionSchema.optional(),
-  policyJSON: policySchema,
+  policyJSON: policyJSONSchema,
   isDefault: z.boolean().default(false),
 });
 
@@ -320,8 +440,8 @@ const PolicyCreateSchema = z.strictObject({
 const PolicyUpdateSchema = z
   .strictObject({
     policyName: policyNameSchema.optional(),
-    description: descriptionSchema.optional(),
-    policyJSON: policySchema.optional(),
+    description: descriptionSchema.nullable().optional(),
+    policyJSON: policyJSONSchema.optional(),
     isDefault: z.boolean().optional(),
   })
   .refine(
@@ -346,7 +466,7 @@ export type TransformationPolicyCreate = z.infer<typeof PolicyCreateSchema>;
 export type TransformationPolicyUpdate = z.infer<typeof PolicyUpdateSchema>;
 
 // Schema exports for validation
-export { outputSchemas };
+export { outputSchemas, fallbackSchemas };
 
 // Runtime validators for transformation policy data and create/update requests
 export const validateTransformationPolicy = (data: unknown) => TransformationPolicySchema.safeParse(data);

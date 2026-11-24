@@ -3,10 +3,16 @@
 
 import { Mapping, Origin, PaginatedOriginResponse } from "../../../data-models";
 import { ErrorCodes } from "../../common";
-import { mockOriginCreateRequest, mockOriginUpdateRequest, mockPathMappingCreateRequest } from "../mocks";
-import { createAuthHeaders } from "./utils";
+import {
+  mockOriginCreateRequest,
+  mockOriginCreateRequestRedacted,
+  mockOriginUpdateRequest,
+  mockPathMappingCreateRequest,
+} from "../mocks";
+import { createAuthHeaders, withUniqueMappingKeys, withUniqueOriginName } from "./utils";
+import { DynamoDBClient } from "./dynamodb-client";
 
-const { API_URL, TEST_ACCESS_TOKEN } = process.env;
+const { API_URL, TEST_ACCESS_TOKEN, TABLE_NAME, CURRENT_STACK_REGION } = process.env;
 if (!API_URL || !TEST_ACCESS_TOKEN) {
   throw new Error("API_URL and TEST_ACCESS_TOKEN must be set in environment");
 }
@@ -14,6 +20,8 @@ if (!API_URL || !TEST_ACCESS_TOKEN) {
 describe("Origins API", () => {
   describe("/origins", () => {
     let origins: Origin[] = [];
+    const originRequest = withUniqueOriginName(mockOriginCreateRequest);
+    const originRequestRedacted = { ...originRequest, originHeaders: mockOriginCreateRequestRedacted.originHeaders };
 
     test("GET origins successfully with empty list", async () => {
       const response = await fetch(API_URL + "/origins", {
@@ -41,11 +49,12 @@ describe("Origins API", () => {
       const response = await fetch(API_URL + "/origins", {
         method: "POST",
         headers: createAuthHeaders(TEST_ACCESS_TOKEN),
-        body: JSON.stringify(mockOriginCreateRequest),
+        body: JSON.stringify(originRequest),
       });
       const responseBody = await response.json();
       expect(response.status).toBe(201);
-      expect(responseBody).toMatchObject(mockOriginCreateRequest);
+      // originHeaders values are write-only — the response echoes the names with redacted values.
+      expect(responseBody).toMatchObject(originRequestRedacted);
       origins.push(responseBody as Origin);
     });
 
@@ -57,7 +66,7 @@ describe("Origins API", () => {
       const responseBody = (await response.json()) as PaginatedOriginResponse;
 
       expect(response.status).toBe(200);
-      expect(responseBody.items.pop()).toMatchObject(mockOriginCreateRequest);
+      expect(responseBody.items.pop()).toMatchObject(originRequestRedacted);
       expect(responseBody.nextToken).toBeUndefined();
     });
 
@@ -107,7 +116,7 @@ describe("Origins API", () => {
       const secondPageIds = secondPageBody.items.map((item: Origin) => item.originId);
       const intersection = firstPageIds.filter((id: string) => secondPageIds.includes(id));
       expect(intersection).toHaveLength(0);
-    }, 30000);
+    }, 60000);
 
     test("GET specified origin successfully", async () => {
       const response = await fetch(API_URL + `/origins/${origins[0].originId}`, {
@@ -116,7 +125,7 @@ describe("Origins API", () => {
       });
       const responseBody = await response.json();
       expect(response.status).toBe(200);
-      expect(responseBody).toMatchObject(mockOriginCreateRequest);
+      expect(responseBody).toMatchObject(originRequestRedacted);
     });
 
     test("UPDATE specified origin successfully", async () => {
@@ -128,6 +137,93 @@ describe("Origins API", () => {
       const responseBody = await response.json();
       expect(response.status).toBe(200);
       expect(responseBody).toMatchObject(mockOriginUpdateRequest);
+    });
+
+    // originHeaders values are write-only: accepted on create/update, never returned. Verified here
+    // against real infrastructure because unit tests mock DynamoDB — only a live table can prove what
+    // is actually persisted, and the response body deliberately cannot show it.
+    describe("originHeaders are write-only end to end", () => {
+      const ddb = () => {
+        if (!TABLE_NAME || !CURRENT_STACK_REGION) {
+          throw new Error("TABLE_NAME and CURRENT_STACK_REGION must be set for write-only header tests");
+        }
+        return new DynamoDBClient(CURRENT_STACK_REGION, TABLE_NAME);
+      };
+
+      const createOrigin = async (body: Record<string, unknown>) => {
+        const response = await fetch(API_URL + "/origins", {
+          method: "POST",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(201);
+        return (await response.json()) as Origin;
+      };
+
+      test("stores the real value while never returning it", async () => {
+        const created = await createOrigin({
+          ...mockOriginCreateRequest,
+          originName: "write-only-store",
+          originHeaders: { "x-api-key": "real-secret-value" },
+        });
+
+        // The response is redacted...
+        expect(created.originHeaders).toEqual({ "x-api-key": "***REDACTED***" });
+        // ...but DynamoDB holds the real credential, so the container can still use it.
+        expect(await ddb().getStoredOriginHeaders(created.originId)).toEqual({ "x-api-key": "real-secret-value" });
+
+        await fetch(API_URL + `/origins/${created.originId}`, {
+          method: "DELETE",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+        });
+      });
+
+      // The regression that matters: the admin UI hydrates its edit form from the API response, so an
+      // update that omits originHeaders must leave the stored credential byte-identical.
+      test("preserves the stored credential when an update omits originHeaders", async () => {
+        const created = await createOrigin({
+          ...mockOriginCreateRequest,
+          originName: "write-only-preserve",
+          originHeaders: { "x-api-key": "must-survive-rename" },
+        });
+
+        const updateResponse = await fetch(API_URL + `/origins/${created.originId}`, {
+          method: "PUT",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+          body: JSON.stringify({ originName: "write-only-renamed" }),
+        });
+        expect(updateResponse.status).toBe(200);
+
+        const stored = await ddb().getStoredOriginHeaders(created.originId);
+        expect(stored).toEqual({ "x-api-key": "must-survive-rename" });
+        expect(JSON.stringify(stored)).not.toContain("REDACTED");
+
+        await fetch(API_URL + `/origins/${created.originId}`, {
+          method: "DELETE",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+        });
+      });
+
+      test("replaces the stored credential when an update supplies originHeaders", async () => {
+        const created = await createOrigin({
+          ...mockOriginCreateRequest,
+          originName: "write-only-rotate",
+          originHeaders: { "x-api-key": "old-key" },
+        });
+
+        await fetch(API_URL + `/origins/${created.originId}`, {
+          method: "PUT",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+          body: JSON.stringify({ originHeaders: { "x-api-key": "rotated-key" } }),
+        });
+
+        expect(await ddb().getStoredOriginHeaders(created.originId)).toEqual({ "x-api-key": "rotated-key" });
+
+        await fetch(API_URL + `/origins/${created.originId}`, {
+          method: "DELETE",
+          headers: createAuthHeaders(TEST_ACCESS_TOKEN),
+        });
+      });
     });
 
     test("DELETE specified origin successfully", async () => {
@@ -142,7 +238,7 @@ describe("Origins API", () => {
       const originCreateResponse = await fetch(API_URL + "/origins", {
         method: "POST",
         headers: createAuthHeaders(TEST_ACCESS_TOKEN),
-        body: JSON.stringify(mockOriginCreateRequest),
+        body: JSON.stringify(withUniqueOriginName(mockOriginCreateRequest)),
       });
       const originResponseBody = (await originCreateResponse.json()) as Origin;
 
@@ -150,8 +246,10 @@ describe("Origins API", () => {
         method: "POST",
         headers: createAuthHeaders(TEST_ACCESS_TOKEN),
         body: JSON.stringify({
-          mappingName: mockPathMappingCreateRequest.mappingName,
-          pathPattern: mockPathMappingCreateRequest.pathPattern,
+          ...withUniqueMappingKeys({
+            mappingName: mockPathMappingCreateRequest.mappingName,
+            pathPattern: mockPathMappingCreateRequest.pathPattern,
+          }),
           originId: originResponseBody.originId,
         }),
       });

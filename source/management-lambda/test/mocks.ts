@@ -14,6 +14,26 @@ import {
 } from "../../data-models";
 import { DBEntityType, DBMapping, DBOrigin, DBTransformationPolicy } from "../interfaces";
 
+// Mock AWS SDK v3 Secrets Manager client
+export const mockSecretsManagerCommands = {
+  get: jest.fn(),
+};
+
+jest.mock("@aws-sdk/client-secrets-manager", () => {
+  const actual = jest.requireActual("@aws-sdk/client-secrets-manager");
+  return {
+    ...actual,
+    SecretsManagerClient: jest.fn(() => ({
+      send: jest.fn((command) => {
+        if (command instanceof actual.GetSecretValueCommand) {
+          return mockSecretsManagerCommands.get(command.input);
+        }
+        throw new Error(`Unimplemented Secrets Manager command: ${command.constructor.name}`);
+      }),
+    })),
+  };
+});
+
 // Mock AWS SDK v3 DynamoDB Document client
 export const mockDynamoDBCommands = {
   get: jest.fn(),
@@ -84,6 +104,15 @@ export const mockOrigin: Origin = {
   updatedAt: "2024-01-01T00:00:00.000Z",
 };
 
+/**
+ * mockOrigin as the API returns it — originHeaders values are write-only, so callers receive the
+ * header names with redacted values.
+ */
+export const mockOriginRedacted: Origin = {
+  ...mockOrigin,
+  originHeaders: { "x-api-key": "***REDACTED***" },
+};
+
 export const mockOriginCreateRequest: OriginCreate = {
   originName: "example-origin",
   originDomain: "example.com",
@@ -91,6 +120,17 @@ export const mockOriginCreateRequest: OriginCreate = {
   originHeaders: { "x-api-key": "test-key" },
 };
 
+/**
+ * mockOriginCreateRequest as the API echoes it back — same fields, but header values redacted.
+ * Use this for assertions on response bodies; use mockOriginCreateRequest for request bodies.
+ */
+export const mockOriginCreateRequestRedacted: OriginCreate = {
+  ...mockOriginCreateRequest,
+  originHeaders: { "x-api-key": "***REDACTED***" },
+};
+
+// Deliberately omits originHeaders: exercises the merge-patch preservation case, where an update
+// that does not mention originHeaders must leave the stored credential untouched.
 export const mockOriginUpdateRequest: OriginUpdate = {
   originName: "updated-origin",
   originDomain: "updated.com",
@@ -225,3 +265,46 @@ export const mockHostHeaderMappingUpdateRequest: MappingUpdate = {
   originId: mockUUIDV4_2,
   policyId: mockUUIDV4_2,
 };
+
+/**
+ * Stubs GSI1 queries with the given items per GSI1PK, so the uniqueness check sees an existing table.
+ * Partitions not listed return no items. GetItem on a listed item's PK returns that item (the clash
+ * confirmation read); any other GetItem falls through to the get mock already set.
+ */
+export const mockGSI1Partitions = (partitions: Partial<Record<DBEntityType, any[]>>) => {
+  mockDynamoDBCommands.query.mockImplementation(async (input: any) => ({
+    Items: partitions[input.ExpressionAttributeValues?.[":gsi1pk"] as DBEntityType] ?? [],
+  }));
+  const fallback = mockDynamoDBCommands.get.getMockImplementation();
+  const byPK = new Map(Object.values(partitions).flatMap((items) => (items ?? []).map((item) => [item.PK, item])));
+  mockDynamoDBCommands.get.mockImplementation(async (input: any) =>
+    byPK.has(input.Key.PK) ? { Item: byPK.get(input.Key.PK) } : fallback ? fallback(input) : { Item: undefined }
+  );
+};
+
+export const mockOtherOriginDDB = (originName: string, pk = mockUUIDV4_2): DBOrigin => ({
+  ...mockOriginDDB,
+  PK: pk,
+  GSI1SK: originName,
+  Data: { ...mockOriginDDB.Data, originName },
+});
+
+export const mockOtherPolicyDDB = (policyName: string, pk = mockUUIDV4_2): DBTransformationPolicy => ({
+  ...mockTransformationPolicyDDB,
+  PK: pk,
+  GSI1SK: policyName,
+  Data: { ...mockTransformationPolicyDDB.Data, policyName },
+});
+
+export const mockOtherMappingDDB = (
+  type: DBEntityType.PATH_MAPPING | DBEntityType.HOST_HEADER_MAPPING,
+  pattern: string,
+  mappingName: string,
+  pk = mockUUIDV4_2
+): DBMapping => ({
+  ...mockPathMappingDDB,
+  PK: pk,
+  GSI1PK: type,
+  GSI1SK: pattern,
+  Data: { ...mockPathMappingDDB.Data, mappingName },
+});

@@ -11,8 +11,8 @@ vi.mock('../../../utils/user', () => ({
 }));
 
 const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual('react-router');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -46,7 +46,7 @@ describe('CreateMapping Form Validation', () => {
     expect(pathPatternInput).toBeInTheDocument();
   });
 
-  it.skip('should validate pattern mutual exclusion', async () => {
+  it('should validate pattern mutual exclusion', async () => {
     const user = userEvent.setup();
     render(<CreateMapping />);
     

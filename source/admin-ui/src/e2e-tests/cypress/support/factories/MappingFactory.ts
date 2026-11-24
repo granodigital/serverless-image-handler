@@ -10,44 +10,40 @@ export interface MappingTestData {
   policy?: string;
 }
 
+// The API rejects duplicate mapping patterns, so patterns carry the same timestamp suffix as names.
 export class MappingFactory {
   static createBasicMapping(overrides: Partial<MappingTestData> = {}): MappingTestData {
     return {
-      name: 'Test Mapping',
+      name: `Test Mapping ${Date.now()}`,
       description: 'Basic mapping for testing',
-      hostHeaderPattern: 'example.com',
-      origin: 'Test Origin',
+      hostHeaderPattern: `test-${Date.now()}.example.com`,
       ...overrides
     };
   }
 
   static createHostHeaderPatternMapping(overrides: Partial<MappingTestData> = {}): MappingTestData {
     return {
-      name: 'Host Header Pattern Mapping',
+      name: `Host Header Pattern Mapping ${Date.now()}`,
       description: 'Mapping with host header pattern only',
-      hostHeaderPattern: '*.example.com',
-      origin: 'Test Origin',
+      hostHeaderPattern: `*.host-${Date.now()}.example.com`,
       ...overrides
     };
   }
 
   static createPathPatternMapping(overrides: Partial<MappingTestData> = {}): MappingTestData {
     return {
-      name: 'Path Pattern Mapping',
+      name: `Path Pattern Mapping ${Date.now()}`,
       description: 'Mapping with path pattern only',
-      pathPattern: '/images/*',
-      origin: 'Test Origin',
+      pathPattern: `/images-${Date.now()}/*`,
       ...overrides
     };
   }
 
   static createPolicyMapping(overrides: Partial<MappingTestData> = {}): MappingTestData {
     return {
-      name: 'Policy Mapping',
+      name: `Policy Mapping ${Date.now()}`,
       description: 'Mapping with policy',
-      hostHeaderPattern: 'policy.example.com',
-      origin: 'Test Origin',
-      policy: 'Test Policy',
+      hostHeaderPattern: `policy-${Date.now()}.example.com`,
       ...overrides
     };
   }
