@@ -1165,8 +1165,26 @@ function processQueryParams(querystring) {
                   },
                 },
               ],
-              "PathPattern": "test-bucket/*.svg",
+              "PathPattern": "test-bucket-a/*.svg",
               "TargetOriginId": "TestStackBackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin2D8E4F6F0",
+              "ViewerProtocolPolicy": "https-only",
+            },
+            {
+              "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+              "Compress": true,
+              "FunctionAssociations": [
+                {
+                  "EventType": "viewer-request",
+                  "FunctionARN": {
+                    "Fn::GetAtt": [
+                      "BackEndRemoveBucketNameC579C2CD",
+                      "FunctionARN",
+                    ],
+                  },
+                },
+              ],
+              "PathPattern": "test-bucket-b/*.svg",
+              "TargetOriginId": "TestStackBackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin33F6C0310",
               "ViewerProtocolPolicy": "https-only",
             },
           ],
@@ -1295,7 +1313,7 @@ function processQueryParams(querystring) {
                 "Fn::Join": [
                   "",
                   [
-                    "test-bucket.s3.",
+                    "test-bucket-a.s3.",
                     {
                       "Ref": "AWS::Region",
                     },
@@ -1315,6 +1333,37 @@ function processQueryParams(querystring) {
                       "origin-access-identity/cloudfront/",
                       {
                         "Ref": "BackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin2S3OriginC90F0BFF",
+                      },
+                    ],
+                  ],
+                },
+              },
+            },
+            {
+              "DomainName": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "test-bucket-b.s3.",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ".",
+                    {
+                      "Ref": "AWS::URLSuffix",
+                    },
+                  ],
+                ],
+              },
+              "Id": "TestStackBackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin33F6C0310",
+              "S3OriginConfig": {
+                "OriginAccessIdentity": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "origin-access-identity/cloudfront/",
+                      {
+                        "Ref": "BackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin3S3OriginB2D7A95F",
                       },
                     ],
                   ],
@@ -1352,6 +1401,15 @@ function processQueryParams(querystring) {
       "Properties": {
         "CloudFrontOriginAccessIdentityConfig": {
           "Comment": "Identity for TestStackBackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin2D8E4F6F0",
+        },
+      },
+      "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",
+    },
+    "BackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin3S3OriginB2D7A95F": {
+      "Condition": "CommonResourcesDisableS3ObjectLambdaCondition017AC33C",
+      "Properties": {
+        "CloudFrontOriginAccessIdentityConfig": {
+          "Comment": "Identity for TestStackBackEndImageHandlerCloudFrontApiGatewayLambdaCloudFrontToApiGatewayCloudFrontDistributionOrigin33F6C0310",
         },
       },
       "Type": "AWS::CloudFront::CloudFrontOriginAccessIdentity",

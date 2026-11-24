@@ -20,7 +20,7 @@ describe("ServerlessImageHandlerStack", () => {
         solutionName: "dynamic-image-transformation-for-amazon-cloudfront",
         solutionVersion: "v7.0.1",
         // Grano customization: the SVG cache behavior needs the source bucket list.
-        sourceBuckets: "test-bucket",
+        sourceBuckets: "test-bucket-a, test-bucket-b",
       },
     });
 
@@ -60,6 +60,15 @@ describe("ServerlessImageHandlerStack", () => {
 
     expect.assertions(1);
     expect(templateJson).toMatchSnapshot();
+  });
+
+  test("Grano customization: serves SVGs directly from each source bucket", () => {
+    const distributions = template.findResources("AWS::CloudFront::Distribution");
+    const pathPatterns = Object.values(distributions).flatMap((d) =>
+      (d.Properties.DistributionConfig.CacheBehaviors ?? []).map((b: { PathPattern: string }) => b.PathPattern)
+    );
+
+    expect(pathPatterns).toEqual(["test-bucket-a/*.svg", "test-bucket-b/*.svg"]);
   });
 
   test("All Lambda functions should use supported runtimes", () => {
