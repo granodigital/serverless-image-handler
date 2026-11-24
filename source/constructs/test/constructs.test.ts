@@ -7,6 +7,8 @@ import { App } from "aws-cdk-lib";
 import { ServerlessImageHandlerStack } from "../lib/serverless-image-stack";
 
 const SUPPORTED_RUNTIMES = ["nodejs24.x", "python3.13"];
+const TEST_CUSTOM_DOMAIN = "thumb.example.com";
+const TEST_CERTIFICATE_ARN = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000";
 
 describe("ServerlessImageHandlerStack", () => {
   let app: App;
@@ -21,6 +23,9 @@ describe("ServerlessImageHandlerStack", () => {
         solutionVersion: "v7.0.1",
         // Grano customization: the SVG cache behavior needs the source bucket list.
         sourceBuckets: "test-bucket-a, test-bucket-b",
+        // Grano customization: the image distribution serves a custom domain.
+        customDomain: TEST_CUSTOM_DOMAIN,
+        certificateArn: TEST_CERTIFICATE_ARN,
       },
     });
 
@@ -62,13 +67,48 @@ describe("ServerlessImageHandlerStack", () => {
     expect(templateJson).toMatchSnapshot();
   });
 
-  test("Grano customization: serves SVGs directly from each source bucket", () => {
-    const distributions = template.findResources("AWS::CloudFront::Distribution");
-    const pathPatterns = Object.values(distributions).flatMap((d) =>
-      (d.Properties.DistributionConfig.CacheBehaviors ?? []).map((b: { PathPattern: string }) => b.PathPattern)
-    );
+  /** The image handler distribution: the only one with the Grano custom domain. */
+  function imageDistributionConfig() {
+    const configs = Object.values(template.findResources("AWS::CloudFront::Distribution"))
+      .map((d) => d.Properties.DistributionConfig)
+      .filter((config) => config.Aliases !== undefined);
+    expect(configs).toHaveLength(1);
+    return configs[0];
+  }
 
-    expect(pathPatterns).toEqual(["test-bucket-a/*.svg", "test-bucket-b/*.svg"]);
+  test("Grano customization: image distribution serves the custom domain with its certificate", () => {
+    const config = imageDistributionConfig();
+
+    expect(config.Aliases).toEqual([TEST_CUSTOM_DOMAIN]);
+    expect(config.ViewerCertificate.AcmCertificateArn).toEqual(TEST_CERTIFICATE_ARN);
+  });
+
+  test("Grano customization: serves SVGs directly from each source bucket", () => {
+    const config = imageDistributionConfig();
+    const behaviors = config.CacheBehaviors ?? [];
+    const [removeBucketNameId, ...otherFunctions] = Object.keys(
+      template.findResources("AWS::CloudFront::Function")
+    ).filter((id) => id.includes("RemoveBucketName"));
+    expect(removeBucketNameId).toBeDefined();
+    expect(otherFunctions).toHaveLength(0);
+
+    expect(behaviors.map((b: { PathPattern: string }) => b.PathPattern)).toEqual([
+      "test-bucket-a/*.svg",
+      "test-bucket-b/*.svg",
+    ]);
+    for (const behavior of behaviors) {
+      const bucket = behavior.PathPattern.split("/")[0];
+
+      // The function strips the bucket name from the path, so S3 gets /x.svg instead of /<bucket>/x.svg.
+      expect(behavior.FunctionAssociations).toEqual([
+        { EventType: "viewer-request", FunctionARN: { "Fn::GetAtt": [removeBucketNameId, "FunctionARN"] } },
+      ]);
+
+      // The behaviour goes to that bucket's S3 origin, not to API Gateway.
+      const origin = config.Origins.find((o: { Id: string }) => o.Id === behavior.TargetOriginId);
+      expect(origin.S3OriginConfig).toBeDefined();
+      expect(JSON.stringify(origin.DomainName)).toContain(`"${bucket}.s3."`);
+    }
   });
 
   test("All Lambda functions should use supported runtimes", () => {

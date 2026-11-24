@@ -1150,6 +1150,9 @@ function processQueryParams(querystring) {
       },
       "Properties": {
         "DistributionConfig": {
+          "Aliases": [
+            "thumb.example.com",
+          ],
           "CacheBehaviors": [
             {
               "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
@@ -1373,6 +1376,11 @@ function processQueryParams(querystring) {
           ],
           "PriceClass": {
             "Ref": "CloudFrontPriceClassParameter",
+          },
+          "ViewerCertificate": {
+            "AcmCertificateArn": "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
+            "MinimumProtocolVersion": "TLSv1.2_2021",
+            "SslSupportMethod": "sni-only",
           },
         },
         "Tags": [
