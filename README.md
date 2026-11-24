@@ -39,7 +39,7 @@ The solution uses CDK to deploy the stack. The following steps are required to d
 ## Updating
 
 - `git pull upstream main` - Pull the latest changes from the upstream repo
-- Update the constructs snapshot, which includes the Grano customizations: `cd source/constructs && npx jest test/constructs.test.ts -u`. Check that the snapshot diff only has Grano changes (tags, SVG behaviours, the `Solution` mapping).
+- Update the constructs snapshot, which includes the Grano customizations: `cd source/constructs && npm test -- test/constructs.test.ts -u`. The `pretest` hook reinstalls dependencies first. If you already ran `npm run clean:install`, `overrideWarningsEnabled=false npx jest test/constructs.test.ts -u` is faster; without that variable the test hangs. Check that the snapshot diff only has Grano changes (tags, SVG behaviours, custom domain, the `Solution` mapping).
 - You can run `./scripts/stack.sh diff` to see the changes before deploying.
 - Otherwise the steps are the same as Deployment steps above.
 
