@@ -112,6 +112,9 @@ export class ImageHandler {
       // Large TIFFs (e.g. from Photoshop) with XMP/IPTC metadata can exceed it.
       // The Lambda memory limit and limitInputPixels still guard against abuse.
       unlimited: true,
+      // sharp 0.35 rejects images with more than 5 channels by default (e.g. CMYK or Photoshop TIFFs
+      // with alpha or extra channels). sharp 0.34 had no such limit, so keep accepting them.
+      limitInputChannels: false,
     };
     try {
       // Return early if no edits are required

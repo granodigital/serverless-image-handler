@@ -42,6 +42,7 @@ describe("animated", () => {
       animated: false,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -67,6 +68,7 @@ describe("animated", () => {
       animated: true,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -92,6 +94,7 @@ describe("animated", () => {
       animated: false,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -117,6 +120,7 @@ describe("animated", () => {
       animated: false,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -142,6 +146,7 @@ describe("animated", () => {
       animated: true,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -167,6 +172,7 @@ describe("animated", () => {
       animated: false,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 
@@ -192,6 +198,7 @@ describe("animated", () => {
       animated: false,
       limitInputPixels: true,
       unlimited: true,
+      limitInputChannels: false,
     });
   });
 });
