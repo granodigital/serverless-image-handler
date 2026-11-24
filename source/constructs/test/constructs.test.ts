@@ -19,6 +19,8 @@ describe("ServerlessImageHandlerStack", () => {
         solutionId: "SO0023",
         solutionName: "dynamic-image-transformation-for-amazon-cloudfront",
         solutionVersion: "v7.0.1",
+        // Grano customization: the SVG cache behavior needs the source bucket list.
+        sourceBuckets: "test-bucket",
       },
     });
 
