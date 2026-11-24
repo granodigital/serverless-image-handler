@@ -6,7 +6,10 @@ import { Template } from "aws-cdk-lib/assertions";
 import { ManagementStack } from "../../stacks";
 import { cleanTemplateForSnapshot } from "./test-utils";
 
-const SUPPORTED_RUNTIMES = ["nodejs22.x", "python3.13"];
+// Our own Lambdas use nodejs24.x via DIT_LAMBDA_RUNTIME. CDK-generated framework helpers
+// (LogRetention, custom-resource provider framework) have their runtime set internally by
+// aws-cdk-lib; python3.13 is one such helper.
+const SUPPORTED_RUNTIMES = ["nodejs24.x", "python3.13"];
 
 describe("ManagementStack", () => {
   let app: App;
@@ -15,7 +18,7 @@ describe("ManagementStack", () => {
 
   beforeEach(() => {
     process.env.SOLUTION_ID = "SO0023";
-    process.env.VERSION = "v8.0.3";
+    process.env.VERSION = "v8.1.3";
 
     app = new App();
     stack = new ManagementStack(app, "TestManagementStack", {
@@ -36,7 +39,7 @@ describe("ManagementStack", () => {
     expect(cleanedTemplate).toMatchSnapshot();
   });
 
-  test("All Lambda functions should use Node.js 22 runtime", () => {
+  test("All Lambda functions should use Node.js 24 runtime", () => {
     const lambdaFunctions = template.findResources("AWS::Lambda::Function");
     const functionNames = Object.keys(lambdaFunctions);
 
@@ -46,5 +49,24 @@ describe("ManagementStack", () => {
       const runtime = lambdaFunctions[functionName].Properties.Runtime;
       expect(SUPPORTED_RUNTIMES).toContain(runtime);
     });
+  });
+
+  test("ApiLambda should have ACCOUNT_ID and PAGINATION_TOKEN_SECRET_ARN environment variables", () => {
+    const lambdaFunctions = template.findResources("AWS::Lambda::Function");
+    const apiLambda = Object.entries(lambdaFunctions).find(([logicalId]) =>
+      logicalId.includes("ApiLambda")
+    );
+
+    expect(apiLambda).toBeDefined();
+
+    const [, lambdaResource] = apiLambda!;
+    const environment = lambdaResource.Properties.Environment;
+
+    expect(environment).toBeDefined();
+    expect(environment.Variables).toBeDefined();
+
+    expect(environment.Variables.ACCOUNT_ID).toBeDefined();
+    expect(environment.Variables.ACCOUNT_ID).toEqual({ Ref: "AWS::AccountId" });
+    expect(environment.Variables.PAGINATION_TOKEN_SECRET_ARN).toBeDefined();
   });
 });

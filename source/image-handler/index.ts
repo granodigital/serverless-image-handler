@@ -22,6 +22,7 @@ import {
   S3Event,
   S3GetObjectEvent,
   S3HeadObjectResult,
+  QueryStringParameters,
   RequestTypes,
   StatusCodes,
 } from "./lib";
@@ -51,7 +52,7 @@ export async function handler(
 
   const normalizedEvent = normalizeEvent(event, ENABLE_S3_OBJECT_LAMBDA);
   console.info(`Path: ${normalizedEvent.path}`);
-  console.info(`QueryParams: ${JSON.stringify(normalizedEvent.queryStringParameters)}`);
+  console.info(`QueryParams: ${JSON.stringify(sanitizeQueryStringParameters(normalizedEvent.queryStringParameters))}`);
 
   const response = handleRequest(normalizedEvent);
   // If deployment is set to use an API Gateway origin
@@ -59,6 +60,7 @@ export async function handler(
     return response;
   }
 
+  // S3 Object Lambda path is deprecated (closed to new customers Nov 7, 2025); kept only for existing deployments.
   // Assume request is from Object Lambda
   const { timeoutPromise, timeoutId } = createS3ObjectLambdaTimeout(context);
   const finalResponse = await Promise.race([response, timeoutPromise]);
@@ -177,17 +179,7 @@ async function handleRequest(event: ImageHandlerEvent): Promise<ImageHandlerExec
 }
 
 /**
- * Builds error response parameters for S3 Object Lambda WriteGetObjectResponse.
- * Takes an error event and constructs a response with appropriate status code,
- * error body, and cache control settings.
- * @param getObjectEvent - The S3 GetObject event containing output route and token
- * @param error - The ImageHandlerError containing status code and error details
- * @returns WriteGetObjectResponseRequest - Parameters for error response including:
- *   - RequestRoute: Output route from the event context
- *   - RequestToken: Output token from the event context
- *   - Body: Error message body
- *   - Metadata: Contains the error status code
- *   - CacheControl: Set to "max-age-10,public" for error responses
+ * Fallback write when the primary WriteGetObjectResponse fails; the S3 Object Lambda request must still be answered.
  */
 function buildErrorResponseParams(getObjectEvent, error: ImageHandlerError) {
   const { statusCode, body } = getErrorResponse(error);
@@ -198,21 +190,13 @@ function buildErrorResponseParams(getObjectEvent, error: ImageHandlerError) {
     Metadata: {
       StatusCode: JSON.stringify(statusCode),
     },
-    CacheControl: "max-age-10,public",
+    CacheControl: "max-age=10,public",
   };
   return params;
 }
 
 /**
- * Processes and sanitizes response headers for the image handler.
- * Filters out undefined header values, URI encodes remaining values,
- * and sets appropriate Cache-Control headers based on response status code.
- * @param finalResponse - The execution result
- * @returns Record<string, string> - Processed headers with encoded values and cache settings
- *
- * Cache-Control rules:
- * - 4xx errors: max-age=10,public
- * - 5xx errors: max-age=600,public
+ * Values are URI-encoded (spaces kept) because they become WriteGetObjectResponse Metadata, which must be US-ASCII.
  */
 function buildResponseHeaders(finalResponse: ImageHandlerExecutionResult): Record<string, string> {
   const filteredHeaders = Object.entries(finalResponse.headers).filter(([_, value]) => value !== undefined);
@@ -327,7 +311,7 @@ function createS3ObjectLambdaTimeout(
         headers: getResponseHeaders(true),
         body,
       });
-    }, Math.max(context.getRemainingTimeInMillis() - 1000, 0)); // 30 seconds in milliseconds
+    }, Math.max(context.getRemainingTimeInMillis() - 1000, 0)); // 1s early so WriteGetObjectResponse can still be sent
   });
   return { timeoutPromise, timeoutId };
 }
@@ -355,6 +339,30 @@ export function normalizeEvent(event: ImageHandlerEvent | S3Event, s3ObjectLambd
     };
   }
   return event as ImageHandlerEvent;
+}
+
+/**
+ * Removes credential-bearing query parameters before the query string is logged.
+ * `signature` is a per-request bearer token; without `expires` it would be replayable
+ * indefinitely by anyone with read access to the log group.
+ * @param queryStringParameters The normalized event's query string parameters.
+ * @returns A copy of the query string parameters with sensitive values redacted, or the
+ * input unchanged when there are no query string parameters.
+ */
+function sanitizeQueryStringParameters(
+  queryStringParameters?: QueryStringParameters
+): QueryStringParameters | undefined {
+  if (!queryStringParameters) {
+    return queryStringParameters;
+  }
+
+  const sanitized = { ...queryStringParameters };
+  for (const key of ["signature", "expires"] as const) {
+    if (key in sanitized) {
+      sanitized[key] = "***REDACTED***";
+    }
+  }
+  return sanitized;
 }
 
 /**

@@ -364,6 +364,7 @@ anymatch under the ISC license.
 normalize-path under the MIT license.
 fb-watchman under the Apache-2.0 license.
 bser under the Apache-2.0 license.
+node-exports-info under the MIT license.
 node-int64 under the MIT license.
 jest-regex-util under the MIT license.
 jest-worker under the MIT license.
@@ -535,6 +536,7 @@ lodash.memoize under the MIT license.
 @smithy/url-parser under the Apache-2.0 license.
 @smithy/querystring-parser under the Apache-2.0 license.
 @smithy/middleware-stack under the Apache-2.0 license.
+fast-xml-builder under the MIT license.
 fast-xml-parser under the MIT license.
 strnum under the MIT license.
 @aws-sdk/credential-provider-node under the Apache-2.0 license.
@@ -691,9 +693,11 @@ detect-libc under the Apache-2.0 license.
 @types/color-convert under the MIT license.
 @types/color-name under the MIT license.
 @popperjs/core under the MIT license.
+@aws-sdk/client-api-gateway under the Apache-2.0 license.
 @aws-sdk/client-cloudformation under the Apache-2.0 license.
 @aws-sdk/client-cloudfront under the Apache-2.0 license.
 @aws-sdk/client-ec2 under the Apache-2.0 license.
+@aws-sdk/middleware-sdk-api-gateway under the Apache-2.0 license.
 @aws-sdk/middleware-sdk-ec2 under the Apache-2.0 license.
 @aws-sdk/util-format-url under the Apache-2.0 license.
 @aws-sdk/client-s3 under the Apache-2.0 license.
@@ -814,6 +818,7 @@ adm-zip under the MIT license.
 @humanwhocodes/retry under the Apache-2.0 license.
 @img/colour under the MIT license.
 @img/sharp-linux-ppc64 under the Apache-2.0 license.
+@inquirer/ansi under the MIT license.
 @inquirer/confirm under the MIT license.
 @inquirer/core under the MIT license.
 @inquirer/figures under the MIT license.
@@ -825,6 +830,7 @@ adm-zip under the MIT license.
 @jest/snapshot-utils under the MIT license.
 @jridgewell/remapping under the MIT license.
 @juggle/resize-observer under the Apache-2.0 license.
+@material/material-color-utilities under the Apache-2.0 license.
 @middy/core under the MIT license.
 @middy/http-cors under the MIT license.
 @middy/http-header-normalizer under the MIT license.
@@ -1147,7 +1153,7 @@ merge-descriptors under the MIT license.
 methods under the MIT license.
 mime under the MIT license.
 min-indent under the MIT license.
-minipass under the ISC license.
+minipass under the BlueOak-1.0.0 license.
 mnemonist under the MIT license.
 mnth under the MIT license.
 morgan under the MIT license.
@@ -1186,6 +1192,7 @@ outvariant under the MIT license.
 package-json-from-dist under the BlueOak-1.0.0 license.
 parse5 under the MIT license.
 parseurl under the MIT license.
+path-expression-matcher under the MIT license.
 path-scurry under the BlueOak-1.0.0 license.
 path-to-regexp under the MIT license.
 pathe under the MIT license.
@@ -1259,6 +1266,7 @@ type-is under the MIT license.
 typescript-eslint under the MIT license.
 uglify-js under the BSD-2-Clause license.
 ulid under the MIT license.
+until-async under the MIT license.
 unpipe under the MIT license.
 unrs-resolver under the MIT license.
 url-parse under the MIT license.
@@ -1362,6 +1370,7 @@ pump under the MIT license.
 regextras under the MIT license.
 request-progress under the MIT license.
 restore-cursor under the MIT license.
+rettime under the MIT license.
 rfdc under the MIT license.
 sshpk under the MIT license.
 systeminformation under the MIT license.
@@ -1377,6 +1386,7 @@ verror under the MIT license.
 yauzl under the MIT license.
 node-addon-api under the MIT license.
 prebuild-install under the MIT license.
+tagged-tag under the MIT license.
 tar-fs under the MIT license.
 chownr under the ISC license.
 mkdirp-classic under the MIT license.
@@ -1424,6 +1434,16 @@ fast-check under the MIT license.
 @rollup/rollup-openbsd-x64 under the MIT license.
 @rollup/rollup-openharmony-arm64 under the MIT license.
 @rollup/rollup-win32-x64-gnu under the MIT license.
+@nodable/entities under the MIT license.
+xml-naming under the MIT license.
+aws-jwt-verify under the Apache-2.0 license.
+anynum under the MIT license.
+@aws-sdk/checksums under the Apache-2.0 license.
+@aws-sdk/credential-providers under the Apache-2.0 license.
+@aws-sdk/credential-provider-cognito-identity under the Apache-2.0 license.
+@radix-ui/react-use-is-hydrated under the MIT license.
+cookie-es under the MIT license.
+
 
 ********************
 OPEN SOURCE LICENSES
@@ -1446,5 +1466,6 @@ GNU-2.0 - https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html
 MIT-0 - https://opensource.org/licenses/MIT-0
 BlueOak-1.0.0 - https://opensource.org/licenses/BlueOak-1.0.0
 Unlicense - https://unlicense.org/
+
 
 

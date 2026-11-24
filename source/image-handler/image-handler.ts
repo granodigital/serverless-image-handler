@@ -9,7 +9,7 @@ import {
   DetectModerationLabelsResponse,
 } from "@aws-sdk/client-rekognition";
 import { GetObjectCommand, GetObjectCommandOutput, S3Client } from "@aws-sdk/client-s3";
-import sharp, { FormatEnum, OverlayOptions, ResizeOptions } from "sharp";
+import sharp, { FormatEnum, Metadata, OutputInfo, OverlayOptions, ResizeOptions, Sharp } from "sharp";
 
 import {
   BoundingBox,
@@ -38,25 +38,22 @@ export class ImageHandler {
    * @returns A Sharp image object
    */
   // eslint-disable-next-line @typescript-eslint/ban-types
-  private async instantiateSharpImage(originalImage: Buffer, edits: ImageEdits, options: Object): Promise<sharp.Sharp> {
+  private async instantiateSharpImage(originalImage: Buffer, edits: ImageEdits, options: Object): Promise<Sharp> {
     try {
-      await sharp(originalImage, options).metadata(); // validation
-      // Default behavior: keep all metadata and ICC profile
-      let image = sharp(originalImage, options).keepIccProfile().keepMetadata();
+      const { orientation } = await sharp(originalImage, options).metadata(); // validation
+      // Keep the ICC profile on every path; Sharp would otherwise convert to sRGB.
+      const image = sharp(originalImage, options).keepIccProfile();
 
       if (edits?.stripExif === true) {
-        // Removes all EXIF by inserting minimal EXIF tag. Leaves ICC untouched.
-        image.keepIccProfile().withExif({
-          IFD0: {
-            Software: 'Dynamic Image Transformation for Amazon CloudFront'
-          }
-        });
-        delete edits.stripExif;
+        // Keep only ICC and the orientation tag: keepMetadata() bits cannot be cleared, and pixels are not rotated.
+        if (orientation) image.withExif({ IFD0: { Orientation: String(orientation) } });
+      } else {
+        image.keepMetadata();
       }
 
       if (edits?.stripIcc === true) {
-        // Strips ICC by defaulting to sRGB color space, while keeping EXIF untouched.
-        image.keepExif().withIccProfile('srgb');
+        // Replaces the ICC with sRGB. EXIF is left to the branch above: keepExif() here would copy back the source EXIF.
+        image.withIccProfile("srgb");
         delete edits.stripIcc;
       }
 
@@ -79,7 +76,7 @@ export class ImageHandler {
    * @param imageRequestInfo the image request
    * @returns A Sharp image object
    */
-  private modifyImageOutput(modifiedImage: sharp.Sharp, imageRequestInfo: ImageRequestInfo): sharp.Sharp {
+  private modifyImageOutput(modifiedImage: Sharp, imageRequestInfo: ImageRequestInfo): Sharp {
     const modifiedOutputImage = modifiedImage;
 
     // modify if specified
@@ -103,16 +100,21 @@ export class ImageHandler {
   async process(imageRequestInfo: ImageRequestInfo): Promise<Buffer> {
     const { originalImage, edits } = imageRequestInfo;
     const { SHARP_SIZE_LIMIT } = process.env;
+    // "" (the CDK default in constructs/lib/serverless-image-stack.ts) or non-numeric => true, Sharp's default
+    // pixel guard; "0" => 0, which Sharp treats as unlimited.
     const limitInputPixels: number | boolean =
       SHARP_SIZE_LIMIT === "" || isNaN(Number(SHARP_SIZE_LIMIT)) || Number(SHARP_SIZE_LIMIT);
     const options = {
-      failOnError: false,
+      failOn: "none" as const,
       animated: imageRequestInfo.contentType === ContentTypes.GIF,
       limitInputPixels,
       // Lift libvips' conservative 50MB cumulative memory limit for TIFF tag loading.
       // Large TIFFs (e.g. from Photoshop) with XMP/IPTC metadata can exceed it.
       // The Lambda memory limit and limitInputPixels still guard against abuse.
       unlimited: true,
+      // sharp 0.35 rejects images with more than 5 channels by default (e.g. CMYK or Photoshop TIFFs
+      // with alpha or extra channels). sharp 0.34 had no such limit, so keep accepting them.
+      limitInputChannels: false,
     };
     try {
       // Return early if no edits are required
@@ -177,7 +179,7 @@ export class ImageHandler {
    * @param isAnimation a flag whether the edit applies to animated files or not.
    * @returns A modifications to the original image.
    */
-  public async applyEdits(originalImage: sharp.Sharp, edits: ImageEdits, isAnimation: boolean): Promise<sharp.Sharp> {
+  public async applyEdits(originalImage: Sharp, edits: ImageEdits, isAnimation: boolean): Promise<Sharp> {
     await this.applyResize(originalImage, edits);
     // Apply the image edits
     for (const edit in edits) {
@@ -223,7 +225,7 @@ export class ImageHandler {
    * @param originalImage The original sharp image.
    * @param edits The edits to be made to the original image.
    */
-  private async applyResize(originalImage: sharp.Sharp, edits: ImageEdits): Promise<void> {
+  private async applyResize(originalImage: Sharp, edits: ImageEdits): Promise<void> {
     if (edits.resize === undefined) {
       edits.resize = {};
       edits.resize.fit = ImageFitTypes.INSIDE;
@@ -298,8 +300,8 @@ export class ImageHandler {
    * @param originalImage The original sharp image.
    * @param edits The edits to be made to the original image.
    */
-  private async applyOverlayWith(originalImage: sharp.Sharp, edits: ImageEdits): Promise<void> {
-    let imageMetadata: sharp.Metadata = await originalImage.metadata();
+  private async applyOverlayWith(originalImage: Sharp, edits: ImageEdits): Promise<void> {
+    let imageMetadata: Metadata = await originalImage.metadata();
 
     if (edits.resize) {
       const imageBuffer = await originalImage.toBuffer();
@@ -331,7 +333,7 @@ export class ImageHandler {
    * @param originalImage The original sharp image.
    * @param edits The edits to be made to the original image.
    */
-  private async applySmartCrop(originalImage: sharp.Sharp, edits: ImageEdits): Promise<void> {
+  private async applySmartCrop(originalImage: Sharp, edits: ImageEdits): Promise<void> {
     // smart crop can be boolean or object
     if (edits.smartCrop === true || typeof edits.smartCrop === "object") {
       const { faceIndex, padding } =
@@ -386,7 +388,7 @@ export class ImageHandler {
    * @param edits The edits to be made to the original image.
    * @returns Sharp object with round crop performed
    */
-  private async applyRoundCrop(originalImage: sharp.Sharp, edits: ImageEdits): Promise<sharp.Sharp> {
+  private async applyRoundCrop(originalImage: Sharp, edits: ImageEdits): Promise<Sharp> {
     // round crop can be boolean or object
     if (this.hasRoundCrop(edits)) {
       const { top, left, rx, ry } =
@@ -429,11 +431,13 @@ export class ImageHandler {
    * @param foundContentLabels the labels identifying inappropriate content found
    */
   private blurImage(
-    originalImage: sharp.Sharp,
+    originalImage: Sharp,
     blur: number | undefined,
     moderationLabels: string[],
     foundContentLabels: DetectModerationLabelsResponse
   ): void {
+    // 50 is a DIT product default (no upstream source). Sharp blur sigma is valid 0.3-1000; an out-of-range value
+    // skips the blur silently instead of erroring.
     const blurValue = blur !== undefined ? Math.ceil(blur) : 50;
 
     if (blurValue >= 0.3 && blurValue <= 1000) {
@@ -455,7 +459,7 @@ export class ImageHandler {
    * @param originalImage The original sharp image.
    * @param edits The edits to be made to the original image.
    */
-  private async applyContentModeration(originalImage: sharp.Sharp, edits: ImageEdits): Promise<void> {
+  private async applyContentModeration(originalImage: Sharp, edits: ImageEdits): Promise<void> {
     // content moderation can be boolean or object
     if (edits.contentModeration === true || typeof edits.contentModeration === "object") {
       const { minConfidence, blur, moderationLabels } =
@@ -482,7 +486,7 @@ export class ImageHandler {
    * @param originalImage The original sharp image.
    * @param edits The edits to be made to the original image.
    */
-  private applyCrop(originalImage: sharp.Sharp, edits: ImageEdits): void {
+  private applyCrop(originalImage: Sharp, edits: ImageEdits): void {
     try {
       originalImage.extract(edits.crop);
     } catch (error) {
@@ -520,7 +524,7 @@ export class ImageHandler {
     wRatio: string,
     hRatio: string,
     alpha: string,
-    sourceImageMetadata: sharp.Metadata
+    sourceImageMetadata: Metadata
   ): Promise<Buffer> {
     if (!getAllowedSourceBuckets().includes(bucket)) {
       throw new ImageHandlerError(
@@ -606,14 +610,7 @@ export class ImageHandler {
   }
 
   /**
-   *
-   * @param response the response from a Rekognition detectFaces API call
-   * @param faceIndex the index number of the face detected
-   * @param boundingBox the box bounds
-   * @param boundingBox.Height height of bounding box
-   * @param boundingBox.Left left side of bounding box
-   * @param boundingBox.Top top of bounding box
-   * @param boundingBox.Width width of bounding box
+   * Clamps the Rekognition face box into the image, since Rekognition can return bounds below 0 or above 1.
    */
   private handleBounds(
     response: DetectFacesResponse,
@@ -648,6 +645,7 @@ export class ImageHandler {
     try {
       const response = await this.rekognitionClient.send(new DetectFacesCommand(params));
       if (response.FaceDetails.length <= 0) {
+        // No face detected: crop to the full frame rather than failing the request.
         return { height: 1, left: 0, top: 0, width: 1 };
       }
 
@@ -662,6 +660,8 @@ export class ImageHandler {
         width: boundingBox.Width,
       };
     } catch (error) {
+      // Patterns are Node.js TypeError wordings (<=14 and 16+) thrown by handleBounds when faceIndex is past the
+      // detected faces; they are not Rekognition SDK errors.
       const errorMapping: ErrorMapping[] = [
         {
           pattern: "Cannot read property 'BoundingBox' of undefined",
@@ -703,6 +703,7 @@ export class ImageHandler {
     try {
       const params = {
         Image: { Bytes: imageBuffer },
+        // 75 is a DIT product default with no upstream source; Rekognition's own default MinConfidence is 50.
         MinConfidence: minConfidence ?? 75,
       };
       return await this.rekognitionClient.send(new DetectModerationLabelsCommand(params));
@@ -723,16 +724,17 @@ export class ImageHandler {
    * @param imageFormatType Result output file type.
    * @returns Converted 'sharp' format.
    */
-  private static convertImageFormatType(imageFormatType: ImageFormatTypes): keyof FormatEnum {
+  private static convertImageFormatType(imageFormatType: ImageFormatTypes): keyof FormatEnum | "avif" {
     switch (imageFormatType) {
       case ImageFormatTypes.JPG:
-        return "jpg";
+        return "jpeg";
       case ImageFormatTypes.JPEG:
         return "jpeg";
       case ImageFormatTypes.PNG:
         return "png";
       case ImageFormatTypes.WEBP:
         return "webp";
+      case ImageFormatTypes.TIF:
       case ImageFormatTypes.TIFF:
         return "tiff";
       case ImageFormatTypes.HEIF:
@@ -757,11 +759,11 @@ export class ImageHandler {
    * @param image the image to be modified by rekognition.
    * @returns object containing image buffer data and original image format.
    */
-  private async getRekognitionCompatibleImage(image: sharp.Sharp): Promise<RekognitionCompatibleImage> {
+  private async getRekognitionCompatibleImage(image: Sharp): Promise<RekognitionCompatibleImage> {
     const sharpImage = sharp(await image.toBuffer()); // Reload sharp image to ensure current metadata
     const metadata = await sharpImage.metadata();
     const format = metadata.format;
-    let imageBuffer: { data: Buffer; info: sharp.OutputInfo };
+    let imageBuffer: { data: Buffer; info: OutputInfo };
 
     // convert image to png if not jpeg or png
     if (!["jpeg", "png"].includes(format)) {
@@ -773,6 +775,7 @@ export class ImageHandler {
     return { imageBuffer, format };
   }
 
+  // Order: ImageHandlerError passes through unchanged, then the first matching errorMappings pattern, then defaultError.
   private handleError(error: Error, defaultError: Error, errorMappings: ErrorMapping[] = []): never {
     console.error(error);
 

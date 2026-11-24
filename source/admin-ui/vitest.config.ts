@@ -9,25 +9,30 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    testTimeout: 15000,
     setupFiles: ['./src/setupTests.ts'],
     reporters: [['default', { summary: false }]],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', ["lcov", { 'projectRoot': '../' }]],
       include: ['src/**/*.{ts,tsx}'],
+      // vitest 4 matches these against the absolute path (picomatch contains),
+      // so bare 'build/' also matched CodeBuild's /codebuild/ root and emptied the report.
       exclude: [
-        'node_modules/',
+        '**/node_modules/**',
         'src/setupTests.ts',
         'src/__tests__/**',
-        'src/mocks/',
+        'src/mocks/**',
         '**/*.d.ts',
         '**/*.config.*',
-        'dist/',
-        'build/',
-        'public/',
-        'plugins/',
+        '**/dist/**',
+        '**/build/**',
+        '**/public/**',
+        '**/plugins/**',
         '**/*.js',
-        'src/e2e-tests'
+        'src/e2e-tests/**',
+        'src/types/**',
+        'src/components/help/index.ts'
       ]
     },
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
@@ -36,7 +41,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
-      '@data-models': new URL('../data-models/index.ts', import.meta.url).pathname
+      '@data-models': new URL('../data-models/index.ts', import.meta.url).pathname,
+      // vitest 4 uses Vite's Module Runner (vite-node removed), which no longer resolves
+      // the out-of-root ../data-models sibling's bare imports through admin-ui's node_modules.
+      // Pin zod to admin-ui's installed copy so the shared models resolve.
+      zod: new URL('./node_modules/zod/index.js', import.meta.url).pathname
     }
   }
 })

@@ -39,6 +39,7 @@ The solution uses CDK to deploy the stack. The following steps are required to d
 ## Updating
 
 - `git pull upstream main` - Pull the latest changes from the upstream repo
+- Update the constructs snapshot, which includes the Grano customizations: `cd source/constructs && npm test -- test/constructs.test.ts -u`. The `pretest` hook reinstalls dependencies first. If you already ran `npm run clean:install`, `overrideWarningsEnabled=false npx jest test/constructs.test.ts -u` is faster; without that variable the test hangs. Check that the snapshot diff only has Grano changes (tags, SVG behaviours, custom domain, the `Solution` mapping).
 - You can run `./scripts/stack.sh diff` to see the changes before deploying.
 - Otherwise the steps are the same as Deployment steps above.
 
@@ -79,10 +80,12 @@ In addition to the AWS Solutions Constructs, the solution uses AWS CDK directly 
 
 # Customizing the Solution
 
+Each package under `source/` has its own README; start with [source/README.md](./source/README.md) for the package guide and local development.
+
 ## Prerequisites for Customization
 
 - [AWS Command Line Interface](https://aws.amazon.com/cli/)
-- Node.js 20.x or later
+- Node.js 24.x or later
 
 ### 1. Clone the repository
 
@@ -158,6 +161,10 @@ This solution sends operational metrics to AWS (the “Data”) about the use of
 - [@nicolasbuch](https://github.com/nicolasbuch) for [#569](https://github.com/aws-solutions/serverless-image-handler/pull/569)
 - [@mrnonz](https://github.com/mrnonz) for [#567](https://github.com/aws-solutions/serverless-image-handler/pull/567)
 - [@ilich](https://github.com/ilich) for [#574](https://github.com/aws-solutions/serverless-image-handler/pull/574)
+- [@chojs23](https://github.com/chojs23) for [#605](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/pull/605)
+- [@endast](https://github.com/endast) for [#608](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/pull/608)
+- [@fabidick22](https://github.com/fabidick22) for [#625](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/pull/625)
+- [@ButterflyJuicer0](https://github.com/ButterflyJuicer0) for [#647](https://github.com/aws-solutions/dynamic-image-transformation-for-amazon-cloudfront/pull/647)
 
 # License
 

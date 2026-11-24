@@ -13,7 +13,8 @@ import {
 import { z } from "zod";
 import { getOptions } from "../../solution-utils/get-options";
 import { logger } from "../common";
-import { AllowedDataModelEntities, AllowedDBEntities, DAO, DBEntityType } from "../interfaces";
+import { PaginationTokenService } from "../common/pagination-token-service";
+import { AllowedDataModelEntities, AllowedDBEntities, DAO, DBEntityType, KeyRecord } from "../interfaces";
 
 /**
  * Base DAO class that provides common DynamoDB operations
@@ -24,6 +25,8 @@ import { AllowedDataModelEntities, AllowedDBEntities, DAO, DBEntityType } from "
 export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedDataModelEntities> implements DAO<T, K> {
   protected readonly tableName: string;
   protected readonly ddbDocClient: DynamoDBDocumentClient;
+  protected readonly accountId: string;
+  protected readonly tokenService: PaginationTokenService;
   protected entityType: DBEntityType;
   protected constructor(
     tableName?: string, // concrete DAOs can pass the table for the DOA instance to work with
@@ -34,7 +37,13 @@ export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedData
       throw new Error("CONFIG_TABLE_NAME environment variable is required");
     }
 
+    this.accountId = process.env.ACCOUNT_ID ?? "";
+    if (!this.accountId) {
+      throw new Error("ACCOUNT_ID environment variable is required");
+    }
+
     this.ddbDocClient = ddbDocClient || DynamoDBDocumentClient.from(new DynamoDBClient(getOptions()));
+    this.tokenService = new PaginationTokenService();
   }
 
   async getAll(nextToken?: string): Promise<{ items: T[]; nextToken?: string }> {
@@ -50,11 +59,18 @@ export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedData
     };
 
     if (nextToken) {
-      try {
-        // Decodes a Base64 string token back into the LastEvaluatedKey object format
-        queryParams.ExclusiveStartKey = JSON.parse(Buffer.from(nextToken, "base64").toString("utf-8"));
-      } catch (error) {
-        logger.warn("Invalid pagination token provided, starting fresh", { error });
+      const validation = await this.tokenService.validateToken(nextToken, this.accountId);
+
+      if (!validation.valid) {
+        logger.warn("Token validation failed, starting fresh", {
+          error: validation.error,
+          errorCode: validation.errorCode,
+        });
+        // Start fresh - ExclusiveStartKey remains undefined. Fail-soft: a bad or expired token returns page 1
+        // instead of an error, so the client may see items it already has.
+      } else {
+        // Extract cursor and cast to DynamoDB ExclusiveStartKey format
+        queryParams.ExclusiveStartKey = this.tokenService.extractCursors(validation.payload!) as Record<string, any>;
       }
     }
 
@@ -73,8 +89,10 @@ export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedData
     const result: { items: T[]; nextToken?: string } = { items };
 
     if (data.LastEvaluatedKey) {
-      // Encodes the LastEvaluatedKey object into a URL-safe Base64 string
-      result.nextToken = Buffer.from(JSON.stringify(data.LastEvaluatedKey), "utf-8").toString("base64");
+      result.nextToken = await this.tokenService.generateToken({
+        accountId: this.accountId,
+        cursor: data.LastEvaluatedKey,
+      });
     }
 
     return result;
@@ -154,6 +172,48 @@ export abstract class BaseDAO<T extends AllowedDBEntities, K extends AllowedData
         ConditionExpression: "attribute_exists(PK)", // Ensure item exists
       })
     );
+  }
+
+  async getKeyRecords(): Promise<KeyRecord[]> {
+    return this.queryKeyRecords(this.entityType);
+  }
+
+  // Reads every page and skips zod validation: an item that fails validation still holds its key.
+  protected async queryKeyRecords(entityType: DBEntityType): Promise<KeyRecord[]> {
+    const records: KeyRecord[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+    do {
+      const data = await this.ddbDocClient.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :gsi1pk",
+          ExpressionAttributeValues: { ":gsi1pk": entityType },
+          ProjectionExpression: "PK, GSI1PK, GSI1SK, #data.mappingName",
+          ExpressionAttributeNames: { "#data": "Data" },
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+      data.Items?.forEach((item) =>
+        records.push({ PK: item.PK, GSI1PK: item.GSI1PK, GSI1SK: item.GSI1SK, mappingName: item.Data?.mappingName })
+      );
+      exclusiveStartKey = data.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+    return records;
+  }
+
+  async getKeyRecord(id: string): Promise<KeyRecord | null> {
+    const { Item: item } = await this.ddbDocClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: id },
+        ConsistentRead: true,
+        ProjectionExpression: "PK, GSI1PK, GSI1SK, #data.mappingName",
+        ExpressionAttributeNames: { "#data": "Data" },
+      })
+    );
+    if (!item) return null;
+    return { PK: item.PK, GSI1PK: item.GSI1PK, GSI1SK: item.GSI1SK, mappingName: item.Data?.mappingName };
   }
 
   /**

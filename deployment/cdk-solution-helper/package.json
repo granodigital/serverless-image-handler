@@ -21,13 +21,24 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "adm-zip": "^0.5.10",
-    "aws-cdk-lib": "^2.124.0"
+    "adm-zip": "^0.6.0",
+    "aws-cdk-lib": "2.273.0"
   },
   "overrides": {
     "semver": "7.5.4",
     "minimatch@3": "3.1.5",
-    "minimatch@5": "5.1.9"
+    "minimatch@5": "5.1.9",
+    "picomatch@2": "2.3.2",
+    "picomatch@4": "4.0.4",
+    "brace-expansion@1": "1.1.21",
+    "brace-expansion@2": "2.1.7",
+    "brace-expansion@5": "5.0.12",
+    "yaml@1": "1.10.3",
+    "diff@4": "4.0.4",
+    "@babel/core": "7.29.6",
+    "fast-uri@3": ">=3.1.4",
+    "js-yaml@3": "3.15.2",
+    "js-yaml@4": "4.3.2"
   },
   "resolutions": {
     "semver": "7.5.4"

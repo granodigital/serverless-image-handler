@@ -15,13 +15,6 @@ import { ImageProcessingError } from '../services/image-processing/types';
 
 const router = Router();
 
-// Headers to exclude from forwarding
-const EXCLUDED_HEADERS: string[] = ['host', 'accept'];
-
-// Memory protection limits
-const MAX_HEADERS = 50;
-const MAX_HEADER_VALUE_LENGTH = 1024;
-
 // Wildcard route handler for all image requests
 router.get('*', async (req: Request, res: Response) => {
   const startTime = Date.now();
@@ -33,7 +26,6 @@ router.get('*', async (req: Request, res: Response) => {
     imageRequest = {
       requestId: randomUUID(),
       timestamp: Date.now(),
-      clientHeaders: filterClientHeaders(req.headers),
       response: { headers: {} },
       timings: {}
     };
@@ -63,6 +55,17 @@ router.get('*', async (req: Request, res: Response) => {
     if (CORS_ORIGIN) {
       res.set('Access-Control-Allow-Origin', CORS_ORIGIN);
     }
+    if (res.locals.isAuthenticated && imageRequest.metrics) {
+      res.set('x-dit-metrics', JSON.stringify(imageRequest.metrics));
+      // Keep metrics responses out of the shared CloudFront cache (cache key excludes Authorization)
+      res.set('Cache-Control', 'private, no-store');
+      console.log(JSON.stringify({
+        requestId: imageRequest.requestId,
+        component: 'ImageRouter',
+        operation: 'metrics_attached',
+        ...imageRequest.metrics,
+      }));
+    }
     res.type(imageRequest.response.contentType || 'image/jpeg');
     res.send(processedImage);
 
@@ -80,7 +83,6 @@ router.get('*', async (req: Request, res: Response) => {
     console.log(JSON.stringify({
       metricType: 'request_latencies',
       totalDurationMs: Date.now() - startTime,
-      preflightValidationMs: imageRequest.timings?.requestResolution?.preflightValidationMs,
       transformationResolutionMs: imageRequest.timings?.transformationResolution?.durationMs,
       originFetchMs: imageRequest.timings?.imageProcessing?.originFetchMs,
       transformationApplicationMs: imageRequest.timings?.imageProcessing?.transformationApplicationMs,
@@ -165,29 +167,6 @@ export function handleError(error: unknown, requestId: string, startTime: number
   }));
 
   return { statusCode, errorType, clientMessage };
-}
-
-/**
- * Filters and limits client headers to prevent memory exhaustion attacks
- */
-export function filterClientHeaders(headers: Record<string, string | string[]>): Record<string, string> {
-  const filtered: Record<string, string> = {};
-  let headerCount = 0;
-  
-  for (const [name, value] of Object.entries(headers)) {
-    if (headerCount >= MAX_HEADERS) break;
-    
-    const lowerName = name.toLowerCase();
-    if (EXCLUDED_HEADERS.includes(lowerName)) continue;
-    
-    const stringValue = Array.isArray(value) ? value[0] : value;
-    if (stringValue && stringValue.length <= MAX_HEADER_VALUE_LENGTH) {
-      filtered[name] = stringValue;
-      headerCount++;
-    }
-  }
-  
-  return filtered;
 }
 
 export default router;

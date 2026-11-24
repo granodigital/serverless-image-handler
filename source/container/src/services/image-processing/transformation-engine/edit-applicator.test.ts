@@ -6,8 +6,15 @@ import { ImageEdits } from '../interfaces';
 import { ImageFitTypes } from '../enums';
 import { ImageProcessingError } from '../types';
 import { SharpUtils } from '../utils/sharp-utils';
+import { SmartCropService } from '../../smart-crop/smart-crop.service';
+import { ContentModerationService } from '../../content-moderation/content-moderation.service';
+import { CacheRegistry } from '../../cache/cache-registry';
+import { ORIGIN_BODY_LIMIT_BYTES } from '../../../utils/origin-body-limit';
+import sharp from 'sharp';
 
 jest.mock('../utils/sharp-utils');
+jest.mock('../../smart-crop/smart-crop.service');
+jest.mock('../../content-moderation/content-moderation.service');
 
 const createMockSharp = (metadata = { width: 800, height: 600, format: 'jpeg', pages: 1 }) => {
   const mock: any = {
@@ -25,12 +32,16 @@ const createMockSharp = (metadata = { width: 800, height: 600, format: 'jpeg', p
 };
 
 const mockOriginFetcher = { fetchImage: jest.fn() };
+const mockExecute = jest.fn().mockResolvedValue({ fallbackApplied: false });
+const mockContentModerationExecute = jest.fn().mockResolvedValue(undefined);
 
 describe('EditApplicator', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (SharpUtils.shouldSkipForAnimation as jest.Mock).mockReturnValue(false);
     (SharpUtils.isAllowedTransformation as jest.Mock).mockReturnValue(true);
+    (SmartCropService.getInstance as jest.Mock).mockReturnValue({ execute: mockExecute });
+    (ContentModerationService.getInstance as jest.Mock).mockReturnValue({ execute: mockContentModerationExecute });
   });
 
   describe('applyEdits', () => {
@@ -222,40 +233,34 @@ describe('EditApplicator', () => {
     });
   });
 
-  describe('getCropArea', () => {
-    const getCropArea = (EditApplicator as any).getCropArea.bind(EditApplicator);
+  describe('smartCrop delegation', () => {
+    it('Should delegate to SmartCropService.execute with params', async () => {
+      const mockImage = createMockSharp();
+      const smartCropParams = { faces: true, padding: 10 };
+      const edits: ImageEdits = { smartCrop: smartCropParams };
 
-    it('Should calculate crop area from bounding box', () => {
-      const boundingBox = { left: 0.25, top: 0.25, width: 0.5, height: 0.5 };
-      const boxSize = { width: 400, height: 400 };
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
 
-      const result = getCropArea(boundingBox, 0, boxSize);
-
-      expect(result).toEqual({ left: 100, top: 100, width: 200, height: 200 });
+      expect(mockExecute).toHaveBeenCalledWith(mockImage, smartCropParams);
     });
 
-    it('Should clamp values to image boundaries', () => {
-      const boundingBox = { left: -0.1, top: -0.1, width: 1.2, height: 1.2 };
-      const boxSize = { width: 100, height: 100 };
+    it('Should not call SmartCropService when smartCrop is not in edits', async () => {
+      const mockImage = createMockSharp();
+      const edits: ImageEdits = { resize: { width: 100 } };
 
-      const result = getCropArea(boundingBox, 0, boxSize);
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
 
-      expect(result.left).toBe(0);
-      expect(result.top).toBe(0);
-      expect(result.width).toBeLessThanOrEqual(100);
-      expect(result.height).toBeLessThanOrEqual(100);
+      expect(mockExecute).not.toHaveBeenCalled();
     });
 
-    it('Should apply padding correctly', () => {
-      const boundingBox = { left: 0.25, top: 0.25, width: 0.5, height: 0.5 };
-      const boxSize = { width: 400, height: 400 };
+    it('Should combine smart crop with other transformations', async () => {
+      const mockImage = createMockSharp();
+      const edits: ImageEdits = { smartCrop: { faces: true }, toFormat: 'webp' };
 
-      const result = getCropArea(boundingBox, 10, boxSize);
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
 
-      expect(result.left).toBe(90);
-      expect(result.top).toBe(90);
-      expect(result.width).toBe(220);
-      expect(result.height).toBe(220);
+      expect(mockExecute).toHaveBeenCalled();
+      expect(mockImage.toFormat).toHaveBeenCalledWith('webp', {});
     });
   });
 
@@ -275,6 +280,117 @@ describe('EditApplicator', () => {
     it('Should handle source without protocol', () => {
       const result = normalizeSource('example.com/image.jpg');
       expect(result).toBe('https://example.com/image.jpg');
+    });
+  });
+
+  describe('contentModeration delegation', () => {
+    it('Should delegate to ContentModerationService.execute with params', async () => {
+      const mockImage = createMockSharp();
+      const edits: ImageEdits = { contentModeration: true };
+
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
+
+      expect(mockContentModerationExecute).toHaveBeenCalledWith(mockImage, true);
+    });
+
+    it('Should delegate with config object', async () => {
+      const mockImage = createMockSharp();
+      const config = { minConfidence: 60, blur: 100, moderationLabels: ['Smoking'] };
+      const edits: ImageEdits = { contentModeration: config };
+
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
+
+      expect(mockContentModerationExecute).toHaveBeenCalledWith(mockImage, config);
+    });
+
+    it('Should not call ContentModerationService when contentModeration is not in edits', async () => {
+      const mockImage = createMockSharp();
+      const edits: ImageEdits = { resize: { width: 100 } };
+
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
+
+      expect(mockContentModerationExecute).not.toHaveBeenCalled();
+    });
+
+    it('Should skip contentModeration for animated images', async () => {
+      const mockImage = createMockSharp({ width: 800, height: 600, format: 'gif', pages: 5 });
+      const edits: ImageEdits = { contentModeration: true };
+
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
+
+      expect(mockContentModerationExecute).not.toHaveBeenCalled();
+    });
+
+    it('Should combine contentModeration with other transformations', async () => {
+      const mockImage = createMockSharp();
+      const edits: ImageEdits = { contentModeration: true, toFormat: 'webp' };
+
+      await EditApplicator.applyEdits(mockImage, edits, mockOriginFetcher as any);
+
+      expect(mockContentModerationExecute).toHaveBeenCalled();
+      expect(mockImage.toFormat).toHaveBeenCalledWith('webp', {});
+    });
+  });
+  describe('watermark overlay shares the origin body budget with the primary image', () => {
+    const OVERLAY_URL = 'https://overlay.example.com/logo.png';
+    const watermark = (): ImageEdits => ({ composite: { source: 'overlay.example.com/logo.png', offSetArray: [0, 0, 0, undefined, undefined] } } as any);
+    let overlayPng: Buffer;
+
+    beforeAll(async () => {
+      overlayPng = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    });
+
+    beforeEach(() => {
+      jest.spyOn(CacheRegistry, 'getInstance').mockReturnValue({
+        getOriginCache: () => ({ getContents: jest.fn().mockResolvedValue([{ originDomain: 'overlay.example.com' }]) }),
+      } as any);
+    });
+
+    const imageWithComposite = () => {
+      const image = createMockSharp();
+      image.composite = jest.fn().mockReturnThis();
+      return image;
+    };
+
+    it('fetches the overlay with the limit left after the primary and applies the composite', async () => {
+      mockOriginFetcher.fetchImage.mockResolvedValue({ buffer: overlayPng, metadata: { size: overlayPng.length, format: 'png' } });
+      const image = imageWithComposite();
+
+      await EditApplicator.applyEdits(image, watermark(), mockOriginFetcher as any, 1000);
+
+      expect(mockOriginFetcher.fetchImage).toHaveBeenCalledWith(OVERLAY_URL, undefined, undefined, ORIGIN_BODY_LIMIT_BYTES - 1000);
+      expect(image.composite).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['exactly at', ORIGIN_BODY_LIMIT_BYTES],
+      ['over', ORIGIN_BODY_LIMIT_BYTES + 1],
+    ])('gives the overlay a zero budget when the primary is %s the limit', async (_label, primaryBytes) => {
+      mockOriginFetcher.fetchImage.mockRejectedValue(new ImageProcessingError(502, 'OriginImageTooLarge', 'Origin image exceeds the maximum size'));
+      const image = imageWithComposite();
+
+      await expect(EditApplicator.applyEdits(image, watermark(), mockOriginFetcher as any, primaryBytes))
+        .rejects.toMatchObject({ statusCode: 502, errorType: 'OverlayFetchError' });
+      expect(mockOriginFetcher.fetchImage).toHaveBeenCalledWith(OVERLAY_URL, undefined, undefined, 0);
+      expect(image.composite).not.toHaveBeenCalled();
+    });
+
+    it('rejects with OverlayFetchError (502) when the overlay does not fit in the remaining budget', async () => {
+      const verbose = "Origin 'https://overlay.example.com/w.png' body of 2000 bytes exceeds the 1000 byte limit.";
+      mockOriginFetcher.fetchImage.mockRejectedValue(new ImageProcessingError(502, 'OriginImageTooLarge', 'Origin image exceeds the maximum size', verbose));
+      const image = imageWithComposite();
+
+      await expect(EditApplicator.applyEdits(image, watermark(), mockOriginFetcher as any, 1000))
+        .rejects.toMatchObject({ statusCode: 502, errorType: 'OverlayFetchError', verboseDescription: verbose });
+      expect(image.composite).not.toHaveBeenCalled();
+    });
+
+    it('passes the full limit when no primary size is given', async () => {
+      mockOriginFetcher.fetchImage.mockResolvedValue({ buffer: overlayPng, metadata: { size: overlayPng.length, format: 'png' } });
+
+      await EditApplicator.applyEdits(imageWithComposite(), watermark(), mockOriginFetcher as any);
+
+      expect(mockOriginFetcher.fetchImage).toHaveBeenCalledWith(OVERLAY_URL, undefined, undefined, ORIGIN_BODY_LIMIT_BYTES);
     });
   });
 });

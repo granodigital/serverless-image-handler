@@ -3,14 +3,37 @@
 
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { z, ZodSafeParseResult } from "zod";
-import { BadRequestError, ErrorCodes, generateId, NotFoundError, logger } from "../common";
+import {
+  BadRequestError,
+  ErrorCodes,
+  generateId,
+  NotFoundError,
+  logger,
+  applyMergePatch,
+  redactOriginHeaders,
+} from "../common";
 import {
   type AllowedDataModelEntities,
   type AllowedDBEntities,
   type AllowedRequestTypes,
   DAO,
+  type KeyRecord,
   Service,
 } from "../interfaces";
+
+/**
+ * A natural key that must be unique among stored items, compared after normalization
+ */
+export interface UniqueKey {
+  /** Identifies the key, so an update compares it with the same key on the existing entity */
+  field: string;
+  value?: string;
+  normalize: (value: string) => string;
+  /** The stored value to compare against, or undefined when the record does not carry this key */
+  storedValue: (record: KeyRecord) => string | undefined;
+  /** Message prefix, e.g. 'An origin named' */
+  label: string;
+}
 
 /**
  * Abstract base service class that implements the service interface
@@ -32,6 +55,17 @@ export abstract class BaseService<T extends AllowedDBEntities, K extends Allowed
   }
 
   async get(id: unknown): Promise<K> {
+    return this.getInternal(id);
+  }
+
+  /**
+   * Reads an entity for internal use, bypassing any response shaping a subclass applies in get().
+   *
+   * Subclasses may override get() to withhold sensitive fields from callers (see OriginService).
+   * Internal read-merge-write flows must not go through those overrides, or the withheld placeholder
+   * would be merged and persisted over the stored value.
+   */
+  protected async getInternal(id: unknown): Promise<K> {
     const validatedId = this.validateId(id);
     const item = await this.dao.get(validatedId);
     if (!item) throw new NotFoundError("Item not found");
@@ -60,7 +94,8 @@ export abstract class BaseService<T extends AllowedDBEntities, K extends Allowed
       createdAt,
     };
 
-    // Identifying the request type based on fields
+    // Identifying the request type based on fields: relies on originId appearing only in MappingCreate and
+    // originName only in OriginCreate.
     if ("originId" in validatedRequest) {
       item = { ...item, mappingId: id };
     } else if ("originName" in validatedRequest) {
@@ -68,7 +103,8 @@ export abstract class BaseService<T extends AllowedDBEntities, K extends Allowed
     } else if ("policyName" in validatedRequest) {
       item = { ...item, policyId: id };
     }
-    logger.debug("Creating entity", { item });
+    logger.debug("Creating entity", { item: redactOriginHeaders(item) });
+    await this.assertUnique(item as K);
     const dbItem = this.dao.convertToDB(item as K);
     try {
       await this.dao.create(dbItem);
@@ -82,17 +118,72 @@ export abstract class BaseService<T extends AllowedDBEntities, K extends Allowed
   }
 
   async update(id: unknown, updateRequest: unknown): Promise<K> {
-    this.validateId(id);
+    const validatedId = this.validateId(id);
     const validatedRequest = this.validateUpdateRequest(updateRequest);
 
-    const oldData = await this.get(id);
+    const { entity, existing } = await this.buildUpdatedEntity(validatedId, validatedRequest as AllowedRequestTypes);
+    await this.assertUnique(entity, existing);
+    await this.saveEntity(entity);
+    return entity;
+  }
+
+  /**
+   * Builds the merged entity without persisting, returning it with the stored entity it was merged over.
+   * Subclasses can override update() to validate the merged entity before calling saveEntity().
+   */
+  protected async buildUpdatedEntity(
+    validatedId: string,
+    patch: AllowedRequestTypes
+  ): Promise<{ entity: K; existing: K }> {
+    const existing = await this.getInternal(validatedId);
     const updatedAt = new Date().toISOString();
-    const entity: K = {
-      ...oldData,
-      ...validatedRequest,
-      updatedAt,
-    };
-    logger.debug("Updating entity", { entity });
+    const entity = applyMergePatch(
+      { ...existing, updatedAt } as Record<string, unknown>,
+      patch
+    ) as K;
+    logger.debug("Updating entity", { entity: redactOriginHeaders(entity as Record<string, unknown>) });
+    return { entity, existing };
+  }
+
+  /**
+   * Best-effort uniqueness check on the entity's natural keys. GSI1 reads are eventually consistent and
+   * unlocked, so near-simultaneous writes of the same key can both succeed. A clash is confirmed with a
+   * consistent base-table read, so a key freed by a recent delete or rename is not rejected.
+   * On update, a key whose normalized value is unchanged is not checked, so existing duplicates stay editable.
+   */
+  protected async assertUnique(entity: K, existing?: K): Promise<void> {
+    const previousKeys = existing ? this.getUniqueKeys(existing) : [];
+    const keysToCheck = this.getUniqueKeys(entity).filter((key) => {
+      if (key.value === undefined) return false;
+      const previous = previousKeys.find((p) => p.field === key.field);
+      return previous?.value === undefined || previous.normalize(previous.value) !== key.normalize(key.value);
+    });
+    if (keysToCheck.length === 0) return;
+
+    const ownId = this.dao.convertToDB(entity).PK;
+    const records = (await this.dao.getKeyRecords()).filter((record) => record.PK !== ownId);
+    for (const key of keysToCheck) {
+      const target = key.normalize(key.value as string);
+      const holdsKey = (record: KeyRecord | null) => {
+        const stored = record ? key.storedValue(record) : undefined;
+        return stored !== undefined && key.normalize(stored) === target;
+      };
+      for (const candidate of records.filter(holdsKey)) {
+        if (holdsKey(await this.dao.getKeyRecord(candidate.PK))) {
+          throw new BadRequestError(`${key.label} "${key.value}" already exists`, ErrorCodes.INVALID_FIELD_VALUE);
+        }
+      }
+    }
+  }
+
+  /**
+   * Natural keys of the entity that must be unique
+   * Must be implemented by concrete classes
+   * @param {K} entity - Entity to read keys from
+   */
+  protected abstract getUniqueKeys(entity: K): UniqueKey[];
+
+  protected async saveEntity(entity: K): Promise<void> {
     const item: T = this.dao.convertToDB(entity);
     try {
       await this.dao.update(item);
@@ -102,7 +193,6 @@ export abstract class BaseService<T extends AllowedDBEntities, K extends Allowed
       }
       throw err;
     }
-    return entity;
   }
 
   /**

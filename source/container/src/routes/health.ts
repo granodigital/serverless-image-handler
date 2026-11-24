@@ -3,7 +3,6 @@
 
 import { Router, Request, Response } from 'express';
 import { initializationState } from '../services/initialization';
-import { CacheRegistry } from '../services/cache/cache-registry';
 
 const router = Router();
 // Health check endpoint
@@ -17,21 +16,21 @@ router.get('/', async (req: Request, res: Response) => {
 
   if (status === 'HEALTHY') {
     const duration = completionTime ? completionTime.getTime() - startTime.getTime() : 0;
-    const showCacheContents = process.env.SHOW_CACHE_CONTENTS === 'true';
-    
-    //Used for development to display cache contents. Output not effected when flag is ommited or false.
-    let cachedContents = showCacheContents ? await getCacheContents() : null;
-    
+
+    // Cache contents are deliberately not exposed here. The origin cache holds originHeaders, which
+    // carry upstream authentication credentials, and this route is reachable through the CloudFront
+    // default behavior with no enforced authentication.
     let healthResponse = {
       ...baseResponse,
       initializationDuration: `${duration}ms`,
       completedCaches,
-      ...cachedContents
     };
 
     return res.status(200).json(healthResponse);
   }
 
+  // Every non-HEALTHY state returns 503: the ALB health check on /health is what keeps traffic off tasks whose
+  // caches are not warm yet (app.ts does not wait for initialization).
   if (status === 'INITIALIZING') {
     return res.status(503).json({
       ...baseResponse,
@@ -54,15 +53,5 @@ router.get('/', async (req: Request, res: Response) => {
     message: 'Container initialization not started',
   });
 });
-
-const getCacheContents = async () => {
-  const registry = CacheRegistry.getInstance();
-  return {
-    policies: await registry.getPolicyCache().getContents(),
-    origins: await registry.getOriginCache().getContents(),
-    pathMappings: await registry.getPathMappingCache().getContents(),
-    headerMappings: await registry.getHeaderMappingCache().getContents()
-  };
-};
 
 export default router;

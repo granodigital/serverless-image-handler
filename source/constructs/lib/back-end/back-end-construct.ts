@@ -31,6 +31,7 @@ import { ApiGatewayArchitecture } from "./api-gateway-architecture";
 import { S3ObjectLambdaArchitecture } from "./s3-object-lambda-architecture";
 import { SolutionsMetrics, ExecutionDay } from "metrics-utils";
 import { ConditionAspect } from "../../utils/aspects";
+import { EventSourceMappingResolver } from "../common-resources/event-source-mapping-resolver-construct";
 import { OperationalInsightsDashboard } from "../dashboard/ops-insights-dashboard";
 import { Dashboard } from "aws-cdk-lib/aws-cloudwatch";
 
@@ -105,10 +106,14 @@ export class BackEnd extends Construct {
     const imageHandlerLambdaFunction = new NodejsFunction(this, "ImageHandlerLambdaFunction", {
       description: `${props.solutionName} (${props.solutionVersion}): Performs image edits and manipulations`,
       memorySize: 1024,
-      runtime: Runtime.NODEJS_22_X,
+      runtime: Runtime.NODEJS_24_X,
+      // 29s matches the API Gateway REST default integration timeout (raisable only by quota request); this same
+      // function also serves the S3 Object Lambda path.
       timeout: Duration.seconds(29),
       role: imageHandlerLambdaFunctionRole,
       entry: path.join(__dirname, "../../../image-handler/index.ts"),
+      projectRoot: path.join(__dirname, "../../../image-handler"),
+      depsLockFilePath: path.join(__dirname, "../../../image-handler/package-lock.json"),
       environment: {
         AUTO_WEBP: props.autoWebP,
         CORS_ENABLED: props.corsEnabled,
@@ -138,9 +143,13 @@ export class BackEnd extends Construct {
             return [];
           },
           afterBundling(inputDir: string, outputDir: string): string[] {
+            // Must be a single chained command: in local (non-Docker) bundling, CDK runs each
+            // array element as a separate `bash -c` with cwd fixed to projectRoot, so a standalone
+            // `cd ${outputDir}` would be discarded and the install would land in projectRoot, not
+            // the asset. npm 10.4.0+ --libc=glibc is needed for the platform-specific deps to be
+            // installed when cross-compiling sharp from mac to linux.
             return [
-              `cd ${outputDir}`,
-              "rm -rf node_modules/sharp && npm install --cpu=x64 --os=linux --libc=glibc sharp", // npm 10.4.0+ --libc=glibc is needed for the platform-specific deps to be installed when cross-compiling sharp from mac to linux
+              `cd ${outputDir} && rm -rf node_modules/sharp node_modules/@img package-lock.json && npm install --include=optional --cpu=x64 --os=linux --libc=glibc sharp`,
             ];
           },
         },
@@ -180,6 +189,8 @@ export class BackEnd extends Construct {
       queryStringBehavior: CacheQueryStringBehavior.all(),
     });
 
+    // This override supersedes the typed allowList above: accept is in the cache key only when AutoWebP is on.
+    // Keep in sync with Accept normalization in image-handler/cloudfront-function-handlers/apig-request-modifier.js.
     const cachePolicyResource = this.node.findChild("CachePolicy").node.defaultChild as CfnResource;
     cachePolicyResource.addOverride(
       "Properties.CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers",
@@ -231,6 +242,15 @@ export class BackEnd extends Construct {
       ).toString(),
     });
 
+    // Resolve EventSourceMapping conflicts caused by the construct ID rename (v7→v8).
+    // Only runs on first creation of this Custom Resource (i.e. the upgrade).
+    const resolverTargets = EventSourceMappingResolver.findTargetsInMetrics(solutionsMetrics);
+    if (resolverTargets) {
+      const resolver = new EventSourceMappingResolver(this, "EventSourceMappingResolver", resolverTargets);
+      resolver.addDependencyToEventSourceMappings(solutionsMetrics);
+      Aspects.of(resolver).add(new ConditionAspect(props.sendAnonymousStatistics));
+    }
+
     const conditionalCloudFrontDistributionId = Fn.conditionIf(
       props.conditions.useExistingCloudFrontDistributionCondition.logicalId,
       existingDistribution.distributionId,
@@ -246,6 +266,8 @@ export class BackEnd extends Construct {
       logGroups: [imageHandlerLogGroup],
       queryDefinitionName: "BilledDurationMemorySizeQuery",
     });
+    // These patterns parse log text from image-handler/index.ts (console.info(imageRequestInfo)) and
+    // image-handler/image-request.ts ("Query param edits:"); changing either log line breaks this query.
     solutionsMetrics.addQueryDefinition({
       logGroups: [imageHandlerLogGroup],
       queryString: new QueryString({

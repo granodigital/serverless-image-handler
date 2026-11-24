@@ -1,12 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ApiGatewayClient } from "./apigw-client";
 import { CognitoClient } from "./cognito-client";
 import { DynamoDBClient } from "./dynamodb-client";
 
 const globalTeardown = async (): Promise<void> => {
   console.log(" 💣 Running global teardown...");
-  console.log(" 🧹 Clearing table and deleting test cognito app client");
+  console.log(" 🧹 Clearing table, restoring throttling, and deleting test cognito app client");
 
   if (
     !process.env.USER_POOL_ID ||
@@ -18,6 +19,11 @@ const globalTeardown = async (): Promise<void> => {
   }
 
   await new DynamoDBClient(process.env.CURRENT_STACK_REGION, process.env.TABLE_NAME).clearTable();
+
+  if (process.env.API_ID) {
+    const apigwClient = new ApiGatewayClient(process.env.CURRENT_STACK_REGION);
+    await apigwClient.restoreThrottling(process.env.API_ID, "prod", 100, 200);
+  }
 
   const region = process.env.CURRENT_STACK_REGION;
   const cognitoClient = new CognitoClient(region);

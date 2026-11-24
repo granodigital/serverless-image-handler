@@ -1,13 +1,20 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import sharp from 'sharp';
+import sharp, { Metadata, Sharp, SharpOptions } from 'sharp';
 import { ImageProcessingRequest } from '../../types/image-processing-request';
 import { OriginFetcher } from './origin-fetcher';
 import { ImageProcessingError } from './types';
 import { ErrorMapper } from './utils/error-mapping';
 import { TransformationMapper } from './transformation-engine/transformation-mapper';
 import { EditApplicator } from './transformation-engine/edit-applicator';
+
+// Output capabilities measured on sharp 0.35.4 / libvips 8.18.6.
+// Full alpha survives webp/avif/heif/png; gif keeps only 1-bit alpha; jpeg and tiff drop it.
+const ALPHA_PRESERVING_FORMATS = new Set(['webp', 'avif', 'heif', 'png']);
+// Only gif and webp are decoded and encoded with multiple frames (avif/heif/png write one frame;
+// multi-page tiff is not an animation).
+const ANIMATED_SOURCE_FORMATS = new Set(['gif', 'webp']);
 
 export class ImageProcessorService {
   private static instance: ImageProcessorService;
@@ -30,22 +37,41 @@ export class ImageProcessorService {
     imageRequest.timings.imageProcessing = {};
 
     try {
-      const fetchStart = Date.now();
-      const { buffer: imageBuffer, metadata: originMetadata } = await this.originFetcher.fetchImage(
-        imageRequest.origin.url,
-        imageRequest.origin.headers,
-        imageRequest.requestId
-      );
-      imageRequest.timings.imageProcessing.originFetchMs = Date.now() - fetchStart;
+      // The request resolver already fetched the origin image; processing makes no origin call.
+      const source = imageRequest.sourceImage;
+      if (!source) {
+        throw new ImageProcessingError(500, 'MissingSourceImage', 'Source image not available', `Request ${imageRequest.requestId} reached image processing without a fetched source image.`);
+      }
+      const imageBuffer = source.buffer;
+      const originMetadata = { size: source.buffer.length, format: source.format };
+      imageRequest.timings.imageProcessing.originFetchMs = source.fetchDurationMs;
 
       if (!imageRequest.transformations?.length) {
         imageRequest.response.contentType = imageRequest.sourceImageContentType;
+        // SVG passthrough serves raw bytes; harden the response against XSS.
+        this.applySvgSafetyHeaders(imageRequest);
         imageRequest.timings.imageProcessing.transformationApplicationMs = 0;
         return imageBuffer;
       }
-      
+
+      if (imageRequest.sourceImageContentType?.includes('svg')) {
+        const hasFormatTransformation = imageRequest.transformations.some(t => t.type === 'format');
+        const hasRasterizingTransformation = imageRequest.transformations.some(t => t.type !== 'quality' && t.type !== 'format');
+        if (!hasFormatTransformation && !hasRasterizingTransformation) {
+          imageRequest.response.contentType = imageRequest.sourceImageContentType;
+          // SVG passthrough (no format/rasterizing transform): serve raw bytes defensively.
+          this.applySvgSafetyHeaders(imageRequest);
+          imageRequest.timings.imageProcessing.transformationApplicationMs = 0;
+          return imageBuffer;
+        }
+        if (!hasFormatTransformation) {
+          imageRequest.transformations.push({ type: 'format', value: 'png', source: 'auto' });
+        }
+      }
+
       // Extract source dimensions to validate auto-resize transformations
       const metadata = await sharp(imageBuffer).metadata();
+      await this.preserveSourceCapabilities(imageRequest, metadata, imageBuffer);
       this.preventAutoUpscaling(imageRequest, metadata.width);
       
       // We need to map Transformations to Edits before Sharp image instantiation because it influences whether or not we strip or keep metadata
@@ -59,31 +85,26 @@ export class ImageProcessorService {
         editCount: Object.keys(imageEdits).length
       }));
 
-      const isExpectedToBeAnimated = imageRequest.sourceImageContentType == 'image/gif';
-      let sharpOptions = {
+      // Derive animation from the actual decoded frame count rather than the source content type.
+      // This correctly handles any multi-frame source (animated WebP, APNG, etc.), not just GIF.
+      const isExpectedToBeAnimated = (metadata.pages ?? 1) > 1;
+      const sharpOptions = {
         failOnError: true,
         animated: isExpectedToBeAnimated
       }
 
       // Instantiate Sharp image with rotation-aware logic
-      let image = this.instantiateSharpImage(imageBuffer, imageEdits, sharpOptions);
+      const image = this.instantiateSharpImage(imageBuffer, imageEdits, sharpOptions, metadata.orientation);
 
-      // Override animated to false if the resource does not actually have multiple pages / frames
-      if (isExpectedToBeAnimated && (!metadata.pages || metadata.pages <= 1)) {
-        sharpOptions.animated = false;
-        image = await this.instantiateSharpImage(imageBuffer, imageEdits, sharpOptions);
-      }
-
-      await EditApplicator.applyEdits(image, imageEdits, this.originFetcher);
+      await EditApplicator.applyEdits(image, imageEdits, this.originFetcher, imageBuffer.length);
       
       // We need to resolve final image format from the outputted image. Obtaining this formating from image metadata prior to being outputted is unreliable.
       const finalImage = await image.toBuffer({resolveWithObject: true});
       imageRequest.response.contentType = 'image/' + finalImage.info.format;
 
       const totalImageProcessingMs = Date.now() - startTime;
-      imageRequest.timings.imageProcessing.transformationApplicationMs = 
-        totalImageProcessingMs - imageRequest.timings.imageProcessing.originFetchMs;
-      
+      imageRequest.timings.imageProcessing.transformationApplicationMs = totalImageProcessingMs;
+
       console.log(JSON.stringify({
         metricType: 'imageTransformation',
         originImageSize: originMetadata.size,
@@ -94,16 +115,85 @@ export class ImageProcessorService {
         requestId: imageRequest.requestId
       }));
 
+      imageRequest.metrics = {
+        preOptimization: {
+          width: metadata.width ?? null,
+          height: metadata.height ?? null,
+          size: imageBuffer.length,
+          format: originMetadata.format || 'unknown',
+        },
+        postOptimization: {
+          width: finalImage.info.width,
+          height: finalImage.info.height,
+          size: finalImage.info.size,
+          format: finalImage.info.format,
+        },
+        compressionRatio: finalImage.info.size > 0 ? Math.round((imageBuffer.length / finalImage.info.size) * 100) / 100 : null,
+        timings: {
+          originFetchMs: imageRequest.timings.imageProcessing.originFetchMs,
+          transformationApplicationMs: imageRequest.timings.imageProcessing.transformationApplicationMs,
+          transformationResolutionMs: imageRequest.timings.transformationResolution?.durationMs ?? 0,
+          totalRequestMs: Date.now() - imageRequest.timestamp,
+        },
+      };
+
       return finalImage.data;
     } catch (error) {
       throw ErrorMapper.mapError(error);
     }
   }
 
+  // A negotiated (format: auto) format is chosen before the source is fetched, so it can't know
+  // whether the source has alpha or animation. If the negotiated format would drop either, keep
+  // the source format, which is known to carry it. Explicit URL/policy formats are never touched.
+  private async preserveSourceCapabilities(
+    imageRequest: ImageProcessingRequest,
+    metadata: Metadata,
+    imageBuffer: Buffer
+  ): Promise<void> {
+    const transformations = imageRequest.transformations ?? [];
+    const negotiated = transformations.find(t => t.type === 'format' && t.negotiated);
+    if (!negotiated) return;
+
+    const target = String(negotiated.value).toLowerCase();
+    const sourceFormat = metadata.format;
+    const isAnimated = (metadata.pages ?? 1) > 1 && ANIMATED_SOURCE_FORMATS.has(sourceFormat);
+    let reason: 'animation' | 'alpha';
+
+    if (isAnimated) {
+      // gif keeps frames but only 1-bit alpha. It's still allowed: for animation, compatibility wins,
+      // because gif is often the only animated format legacy clients support. Static alpha stays strict.
+      if (target === 'webp' || target === 'gif') return;
+      reason = 'animation';
+    } else if (metadata.hasAlpha && !transformations.some(t => t.type === 'flatten')) {
+      if (ALPHA_PRESERVING_FORMATS.has(target)) return;
+      // hasAlpha only means an alpha channel exists; skip the override when no pixel is transparent.
+      // stats() decodes every pixel, so it runs only when the override would otherwise fire.
+      if ((await sharp(imageBuffer, { limitInputPixels: this.limitInputPixels() }).stats()).isOpaque) return;
+      reason = 'alpha';
+    } else {
+      return;
+    }
+
+    // Sharp can't write SVG, so a rasterized SVG falls back to png instead of its source format.
+    const replacement = sourceFormat === 'svg' ? 'png' : null;
+    imageRequest.transformations = replacement
+      ? transformations.map(t => (t === negotiated ? { ...t, value: replacement } : t))
+      : transformations.filter(t => t !== negotiated);
+
+    console.log(JSON.stringify({
+      requestId: imageRequest.requestId,
+      component: 'ImageProcessor',
+      operation: 'auto_format_overridden',
+      from: target,
+      to: replacement ?? sourceFormat,
+      reason
+    }));
+  }
+
   private preventAutoUpscaling(imageRequest: ImageProcessingRequest, sourceWidth: number): void {
     if (!imageRequest.transformations?.length || !sourceWidth) return;
     imageRequest.transformations = imageRequest.transformations.filter(t => {
-      console.log(t);
       if (t.type === 'resize' && t.source === 'auto' && t.value?.width > sourceWidth) {
         console.log(JSON.stringify({
           requestId: imageRequest.requestId,
@@ -118,25 +208,38 @@ export class ImageProcessorService {
     });
   }
 
-  private instantiateSharpImage(imageBuffer: Buffer, imageEdits: any, options?: any): sharp.Sharp {
-    const limitInputPixels = parseInt(process.env.LIMIT_INPUT_PIXELS || '1000000000', 10);
-    const sharpOptions: sharp.SharpOptions = { limitInputPixels, ...options };
-    // Default behavior of DIT is to keep all Metadata. Sharp by default converts the ICC to sRGB. Must chain keepIcc and keepMetadata to prevent this.
-    let returnInstance = sharp(imageBuffer, sharpOptions).keepIccProfile().keepMetadata();
+  // SVG passthrough serves attacker-controllable bytes as image/svg+xml; force attachment + a locked-down
+  // CSP so it can't execute script via top-level navigation (<img> embedding still works).
+  private applySvgSafetyHeaders(imageRequest: ImageProcessingRequest): void {
+    const contentType = imageRequest.response.contentType ?? imageRequest.sourceImageContentType;
+    if (!contentType?.includes('svg')) return;
+    if (!imageRequest.response.headers) imageRequest.response.headers = {};
+    imageRequest.response.headers['Content-Disposition'] = 'attachment';
+    imageRequest.response.headers['Content-Security-Policy'] = "default-src 'none'; sandbox";
+  }
+
+  // The CDK sets LIMIT_INPUT_PIXELS per deployment size (50 MP on 2 GB, 100 MP on 4 GB) as a decode-memory
+  // guard. An unset or non-numeric value falls back to the smallest tier's cap, not Sharp's ~268 MP default.
+  private limitInputPixels(): number {
+    const parsedLimit = parseInt(process.env.LIMIT_INPUT_PIXELS || '', 10);
+    return Number.isNaN(parsedLimit) ? 50000000 : parsedLimit;
+  }
+
+  private instantiateSharpImage(imageBuffer: Buffer, imageEdits: any, options?: any, sourceOrientation?: number): Sharp {
+    const sharpOptions: SharpOptions = { limitInputPixels: this.limitInputPixels(), ...options };
+    // Sharp by default converts the ICC to sRGB, so keep it on every path.
+    const returnInstance = sharp(imageBuffer, sharpOptions).keepIccProfile();
     try {
       if(imageEdits.stripExif === true){
-        // Removes all EXIF, by inserting the Software EXIF tag. Atleast 1 field is required to use Sharp.withExif(). Leaves ICC untouched.
-        returnInstance.keepIccProfile().withExif({
-          IFD0: {
-            Software: 'Dynamic Image Transformation for Amazon CloudFront'
-          }
-        });
-      } 
+        // Keep only ICC and the orientation tag: keepMetadata() bits cannot be cleared, and pixels are not rotated.
+        if (sourceOrientation) returnInstance.withExif({ IFD0: { Orientation: String(sourceOrientation) } });
+      } else {
+        // Default behavior of DIT is to keep all metadata.
+        returnInstance.keepMetadata();
+      }
       if (imageEdits.stripIcc === true) {
-      // Strips ICC by defaulting to sRGB color space, while keeping EXIF untouched. Allows strip_exif and strip_icc to be used in combination with eachother.
-        returnInstance
-          .keepExif() // Keep EXIF
-          .withIccProfile('srgb'); // Force standard sRGB instead of original ICC
+        // Replaces the ICC with sRGB. EXIF is left to the branch above: keepExif() here would copy back the source EXIF.
+        returnInstance.withIccProfile('srgb');
       }
       return returnInstance;
     } catch (error) {

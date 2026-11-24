@@ -16,7 +16,7 @@ import {
 } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
-import { TableV2 } from "aws-cdk-lib/aws-dynamodb";
+import { AttributeType, Billing, TableEncryptionV2, TableV2 } from "aws-cdk-lib/aws-dynamodb";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -31,8 +31,11 @@ interface ImageProcessingStackProps extends NestedStackProps {
   uuid?: string;
   configTableArn?: string;
   deploymentSize: string;
-  originOverrideHeader?: string
+  originOverrideHeader?: string;
   corsOrigin?: string;
+  userPoolId?: string;
+  userPoolClientId?: string;
+  adminUiDomain?: string;
 }
 
 /**
@@ -42,9 +45,11 @@ interface ImageProcessingStackProps extends NestedStackProps {
  * - Production mode: Internal ALB + CloudFront with VPC Origins
  * - Development mode: Internet-facing ALB
  * - ECS Fargate service with configurable t-shirt sizing
- * - Health check endpoint at /health-check
+ * - Health check endpoint at /health
  */
 export class ImageProcessingStack extends NestedStack {
+  public readonly distributionDomain?: string;
+
   constructor(scope: Construct, id: string, props: ImageProcessingStackProps) {
     super(scope, id, props);
 
@@ -75,10 +80,31 @@ export class ImageProcessingStack extends NestedStack {
       },
     ]);
 
+    // Rekognition result cache table for smart cropping
+    const rekognitionCacheTable = new TableV2(this, "RekognitionCacheTable", {
+      partitionKey: { name: "pk", type: AttributeType.STRING },
+      sortKey: { name: "sk", type: AttributeType.STRING },
+      billing: Billing.onDemand(),
+      encryption: TableEncryptionV2.awsManagedKey(),
+      removalPolicy: RemovalPolicy.DESTROY,
+      timeToLiveAttribute: "ttl",
+    });
+
+    addCfnGuardSuppressRules(rekognitionCacheTable, [
+      {
+        id: "DYNAMODB_TABLE_ENCRYPTED_KMS",
+        reason:
+          "Using AWS-managed encryption for DynamoDB. Cache data is ephemeral Rekognition API responses, so customer-managed KMS keys are not required.",
+      },
+    ]);
+
     const containerConstruct = new ContainerConstruct(this, "Container", {
       sourceDirectory: path.join(__dirname, "../../../../"), // Points to source/ directory
     });
     const ecsTaskRole = containerConstruct.createTaskRole(containerLogGroup.logGroupArn, props.configTable.tableArn);
+
+    // Grant ECS task role cache-specific DynamoDB permissions (read-through cache: get + put only)
+    rekognitionCacheTable.grant(ecsTaskRole, "dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:PutItem");
 
     const albEcsConstruct = new AlbEcsConstruct(this, "AlbEcs", {
       vpc: networkConstruct.vpc,
@@ -92,11 +118,23 @@ export class ImageProcessingStack extends NestedStack {
       configTableArn: props.configTable.tableArn,
       originOverrideHeader: props.originOverrideHeader,
       logGroup: containerLogGroup,
+      userPoolId: props.userPoolId,
+      userPoolClientId: props.userPoolClientId,
     });
+
+    // Pass Rekognition cache table config to ECS container
+    const rekognitionCacheTtl = "86400"; // 24 hours in seconds
+    albEcsConstruct.taskDefinition.defaultContainer?.addEnvironment(
+      "REKOGNITION_CACHE_TABLE",
+      rekognitionCacheTable.tableName
+    );
+    albEcsConstruct.taskDefinition.defaultContainer?.addEnvironment("REKOGNITION_CACHE_TTL", rekognitionCacheTtl);
 
     const deploymentMode = this.node.tryGetContext("deploymentMode") || "prod";
     const isDevMode = deploymentMode === "dev";
 
+    // The VPC origin, CF function, cache and response-headers policies below use fixed names suffixed only by region,
+    // so only one v8 stack can be deployed per account and region.
     let vpcOrigin: origins.VpcOrigin | undefined;
     if (!isDevMode) {
       vpcOrigin = origins.VpcOrigin.withApplicationLoadBalancer(albEcsConstruct.loadBalancer, {
@@ -166,7 +204,8 @@ export class ImageProcessingStack extends NestedStack {
         enableAcceptEncodingBrotli: true,
       });
 
-      // Override the headers property with conditional logic
+      // This override is authoritative; the typed allowList above is replaced by it. The dit-* names must match the
+      // headers set in functions/dit-header-normalization.js and read by the container.
       const cfnCachePolicy = ditCachePolicy.node.defaultChild as cloudfront.CfnCachePolicy;
       cfnCachePolicy.addPropertyOverride(
         "CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers",
@@ -204,13 +243,11 @@ export class ImageProcessingStack extends NestedStack {
           },
         },
         corsBehavior: {
-          accessControlAllowOrigins: [Fn.conditionIf(
-            "CorsOriginIsEmpty",
-            "*",
-            props.corsOrigin!
-          ).toString()],
-          accessControlAllowMethods: ["GET", "HEAD"],
+          accessControlAllowOrigins: [Fn.conditionIf("CorsOriginIsEmpty", "*", props.corsOrigin!).toString()],
+          accessControlAllowMethods: ["GET", "HEAD", "OPTIONS"],
           accessControlAllowHeaders: ["*"],
+          accessControlExposeHeaders: ["X-DIT-Metrics", "Content-Type", "Content-Length"],
+          accessControlMaxAge: Duration.seconds(86400),
           accessControlAllowCredentials: false,
           originOverride: true,
         },
@@ -218,7 +255,7 @@ export class ImageProcessingStack extends NestedStack {
           customHeaders: [
             {
               header: "Accept-CH",
-              value: "Sec-CH-DPR, Sec-CH-Viewport-Width",
+              value: "Sec-CH-Width, Sec-CH-DPR, Sec-CH-Viewport-Width",
               override: false,
             },
             {
@@ -230,16 +267,29 @@ export class ImageProcessingStack extends NestedStack {
         },
       });
 
+      // Override CORS allowed origins with conditional logic:
+      // - If corsOrigin is empty (wildcard): ["*"] covers all origins including admin UI
+      // - If corsOrigin is set: include both the customer's origin and the admin UI domain
+      const cfnResponseHeadersPolicy = imageResponseHeadersPolicy.node
+        .defaultChild as cloudfront.CfnResponseHeadersPolicy;
+      if (props.adminUiDomain) {
+        cfnResponseHeadersPolicy.addPropertyOverride(
+          "ResponseHeadersPolicyConfig.CorsConfig.AccessControlAllowOrigins.Items",
+          Fn.conditionIf(corsOriginIsEmpty.logicalId, ["*"], [props.corsOrigin!, `https://${props.adminUiDomain}`])
+        );
+      }
+
       distribution = new cloudfront.Distribution(this, "ImageProcessingDistribution", {
         comment: `Image Handler Distribution for Dynamic Image Transformation - ${deploymentMode} mode`,
         priceClass: cloudfront.PriceClass.PRICE_CLASS_ALL,
         defaultBehavior: {
           origin: vpcOrigin!,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
           cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
           cachePolicy: ditCachePolicy,
-          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+          // Required so CloudFront-Is-*-Viewer headers reach the CF function (Tier 4 device detection).
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_AND_CLOUDFRONT_2022,
           responseHeadersPolicy: imageResponseHeadersPolicy,
           functionAssociations: [
             {
@@ -342,6 +392,10 @@ export class ImageProcessingStack extends NestedStack {
           distributionId: distribution.distributionId,
           metricName: "BytesDownloaded",
         });
+
+        if (ditFunction) {
+          solutionsMetrics.addCFTierDetectionMetrics({ functionName: ditFunction.functionName });
+        }
       }
     }
 
@@ -391,6 +445,13 @@ export class ImageProcessingStack extends NestedStack {
         value: distribution.distributionDomainName,
         description: "CloudFront distribution domain name for accessing the image processing service",
       });
+
+      new CfnOutput(this, "ImageProcessingDistributionDomain", {
+        value: distribution.distributionDomainName,
+        description: "Image processing CloudFront distribution domain for Demo UI integration",
+      });
+
+      this.distributionDomain = distribution.distributionDomainName;
     }
 
     if (isDevMode) {
@@ -415,6 +476,7 @@ export class ImageProcessingStack extends NestedStack {
           maxCapacity: "4",
           scaleInAmount: "-1",
           scaleOutAmount: "1",
+          limitInputPixels: "50000000",
         },
         medium: {
           cpu: "2048",
@@ -424,6 +486,7 @@ export class ImageProcessingStack extends NestedStack {
           maxCapacity: "8",
           scaleInAmount: "-2",
           scaleOutAmount: "2",
+          limitInputPixels: "100000000",
         },
         large: {
           cpu: "2048",
@@ -433,6 +496,7 @@ export class ImageProcessingStack extends NestedStack {
           maxCapacity: "20",
           scaleInAmount: "-3",
           scaleOutAmount: "3",
+          limitInputPixels: "100000000",
         },
         xlarge: {
           cpu: "2048",
@@ -442,6 +506,7 @@ export class ImageProcessingStack extends NestedStack {
           maxCapacity: "96",
           scaleInAmount: "-6",
           scaleOutAmount: "6",
+          limitInputPixels: "100000000",
         },
       },
     });
@@ -454,6 +519,7 @@ export class ImageProcessingStack extends NestedStack {
       maxCapacity: ecsConfigMapping.findInMap(deploymentSizeParam, "maxCapacity"),
       scaleInAmount: ecsConfigMapping.findInMap(deploymentSizeParam, "scaleInAmount"),
       scaleOutAmount: ecsConfigMapping.findInMap(deploymentSizeParam, "scaleOutAmount"),
+      limitInputPixels: ecsConfigMapping.findInMap(deploymentSizeParam, "limitInputPixels"),
     };
   }
 }
